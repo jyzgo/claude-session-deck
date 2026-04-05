@@ -35,7 +35,7 @@ const colorScript = `
     var existing=document.getElementById('__scp');if(existing)existing.remove();
     var c=P[hash(sid)%P.length];
     var s=document.createElement('style');s.id='__scp';
-    s.textContent='body{border:3px solid '+c+' !important;border-radius:4px;box-sizing:border-box;}';
+    s.textContent='body{border-top:3px solid '+c+' !important;border-bottom:3px solid '+c+' !important;border-left:3px solid '+c+' !important;border-right:none !important;box-sizing:border-box;}';
     document.head.appendChild(s);
   }
 

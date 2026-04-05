@@ -78,8 +78,10 @@ function parseSessionFile(filePath, sessionId, activeIds) {
   const lines = content.split('\n').filter(l => l.trim());
 
   let firstPrompt = '';
+  let lastPrompt = '';
   let lastResponse = '';
   let aiTitle = '';
+  let customTitle = '';
   let slug = '';
   let gitBranch = '';
   let firstTimestamp = null;
@@ -100,18 +102,21 @@ function parseSessionFile(filePath, sessionId, activeIds) {
       if (obj.slug && !slug) slug = obj.slug;
       if (obj.gitBranch && !gitBranch) gitBranch = obj.gitBranch;
       if (obj.type === 'ai-title' && obj.aiTitle) aiTitle = obj.aiTitle;
-      if (obj.type === 'custom-title' && obj.customTitle) aiTitle = obj.customTitle;
+      if (obj.type === 'custom-title' && obj.customTitle) customTitle = obj.customTitle;
 
       if (obj.type === 'user') {
         userTurns++;
-        if (!firstPrompt) {
-          const c = obj.message?.content;
-          if (typeof c === 'string') {
-            firstPrompt = c;
-          } else if (Array.isArray(c)) {
-            const t = c.find(p => p.type === 'text');
-            if (t) firstPrompt = t.text;
-          }
+        const c = obj.message?.content;
+        let text = '';
+        if (typeof c === 'string') text = c;
+        else if (Array.isArray(c)) {
+          // Take the last non-trivial text block (skip file refs, short tags)
+          const texts = c.filter(p => p.type === 'text' && p.text?.trim() && !p.text.trim().startsWith('<'));
+          if (texts.length > 0) text = texts[texts.length - 1].text;
+        }
+        if (text.trim()) {
+          if (!firstPrompt) firstPrompt = text;
+          lastPrompt = text;
         }
       } else if (obj.type === 'assistant') {
         assistantTurns++;
@@ -131,8 +136,11 @@ function parseSessionFile(filePath, sessionId, activeIds) {
   return {
     sessionId,
     aiTitle,
+    customTitle,
+    displayTitle: customTitle || aiTitle || '',
     slug,
     firstPrompt: firstPrompt.substring(0, 200) || '(empty)',
+    lastPrompt: lastPrompt.substring(0, 200) || '',
     lastResponse: lastResponse.substring(0, 300) || '',
     userTurns,
     assistantTurns,

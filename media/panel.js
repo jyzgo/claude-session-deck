@@ -49,7 +49,7 @@
 
   function truncate(str, len) {
     if (!str) return '';
-    const first = str.split('\n')[0];
+    const first = str.split('\n').map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('<')).find(l => l) || '';
     return first.length > len ? first.substring(0, len) + '...' : first;
   }
 
@@ -87,9 +87,14 @@
       div.style.setProperty('--card-color', card.color);
     }
 
-    const title = card.label || card.aiTitle || truncate(card.firstPrompt, 80) || card.slug || card.sessionId.substring(0, 8);
+    const title = card.label || card.displayTitle || card.aiTitle || truncate(card.firstPrompt, 80) || card.slug || card.sessionId.substring(0, 8);
 
-    const snippet = card.lastResponse ? escapeHtml(truncate(card.lastResponse, 150)) : (card.firstPrompt ? escapeHtml(truncate(card.firstPrompt, 150)) : '');
+    const snippetLines = [
+      card.firstPrompt ? '🙋 ' + truncate(card.firstPrompt, 60) : '',
+      card.lastPrompt ? '🙋 ' + truncate(card.lastPrompt, 60) : '',
+      card.lastResponse ? '🤖 ' + truncate(card.lastResponse, 60) : '',
+    ].filter(Boolean);
+    const snippet = snippetLines.map(l => escapeHtml(l)).join('<br>');
 
     div.innerHTML = `
       <div class="card-body">
@@ -97,10 +102,12 @@
           <button class="btn-icon btn-open" title="打开">&#9654;</button>
           <button class="btn-icon btn-pin" title="${card.pinned ? '取消置顶' : '置顶'}">${card.pinned ? '&#9733;' : '&#9734;'}</button>
           <button class="btn-icon btn-close" title="关闭窗口">&#10005;</button>
-          <button class="btn-icon btn-delete" title="删除会话">&#128465;</button>
         </div>
         <div class="card-content">
-          <div class="card-title"><span class="card-title-text${card.isOpen ? ' title-open' : ''}" data-session-id="${card.sessionId}">${escapeHtml(title)}</span></div>
+          <div class="card-title-row">
+            <div class="card-title"><span class="card-title-text${card.isOpen ? ' title-open' : ''}" data-session-id="${card.sessionId}">${escapeHtml(title)}</span></div>
+            <button class="btn-icon btn-delete" title="删除会话">&#128465;</button>
+          </div>
           ${snippet ? `<div class="card-snippet">${snippet}</div>` : ''}
           <div class="card-meta">
             <span class="card-meta-item">${card.userTurns}轮</span>

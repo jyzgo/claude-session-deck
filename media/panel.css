@@ -94,7 +94,7 @@ body {
   background: var(--vscode-editorWidget-background, #252526);
   border: 1px solid var(--vscode-editorWidget-border, #444);
   border-radius: 6px;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-left: 4px solid var(--card-color, var(--vscode-textLink-foreground, #4a9eff));
   cursor: grab;
   transition: box-shadow 0.15s, transform 0.15s, opacity 0.15s;
@@ -157,7 +157,7 @@ body {
 
 /* Card header: title */
 .card-header {
-  margin-bottom: 3px;
+  margin-bottom: 1px;
 }
 
 .card-title {
@@ -171,16 +171,41 @@ body {
   min-width: 0;
 }
 
-/* Card snippet: 2 lines of content */
+/* Card snippet: 3 lines of content */
 .card-snippet {
   font-size: 11px;
   color: var(--vscode-descriptionForeground, #999);
   line-height: 1.4;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+}
+
+/* Title row: title + delete icon */
+.card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+
+.card-title-row .card-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-title-row .btn-delete {
+  flex-shrink: 0;
+  opacity: 0.3;
+  font-size: 12px;
+  padding: 0 2px;
+}
+
+.card-title-row .btn-delete:hover {
+  opacity: 1;
+  color: var(--vscode-errorForeground, #f44);
 }
 
 /* Card metadata */

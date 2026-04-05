@@ -102,12 +102,15 @@ class SessionManagerPanel {
     for (const card of cards) {
       const session = allSessions.find(s => s.sessionId === card.sessionId);
       if (session) {
-        const title = session.aiTitle || session.firstPrompt.substring(0, 30);
+        const titles = [session.customTitle, session.aiTitle, session.firstPrompt.substring(0, 30)].filter(Boolean);
+        const isOpen = titles.some(t =>
+          openTitles.has(t) || [...openTitles].some(ot => ot.includes(t.substring(0, 15)) || t.includes(ot.substring(0, 15)))
+        );
         mergedCards.push({
           ...session,
           ...card,
           color: colorForSession(card.sessionId),
-          isOpen: openTitles.has(title) || [...openTitles].some(t => t.includes(title.substring(0, 20))),
+          isOpen,
         });
       }
     }
@@ -151,23 +154,33 @@ class SessionManagerPanel {
       }
 
       case 'close-session-tab': {
-        // Find the matching Claude Code tab by title and close it
         const allSessions2 = getAllSessions();
         const sess = allSessions2.find(s => s.sessionId === msg.sessionId);
-        const sessTitle = sess ? sess.aiTitle : '';
+        // Try all possible title variants
+        const titleCandidates = [];
+        if (sess) {
+          if (sess.customTitle) titleCandidates.push(sess.customTitle);
+          if (sess.aiTitle) titleCandidates.push(sess.aiTitle);
+          if (sess.firstPrompt) titleCandidates.push(sess.firstPrompt.substring(0, 40));
+        }
 
+        let closed = false;
         for (const group of vscode.window.tabGroups.all) {
+          if (closed) break;
           for (const tab of group.tabs) {
-            // Only match claudeVSCodePanel (not our own claudeSessionManager)
-            if (tab.input && String(tab.input.viewType || '').includes('claudeVSCodePanel') &&
-                sessTitle && tab.label && tab.label.includes(sessTitle.substring(0, 15))) {
-              await vscode.window.tabGroups.close(tab);
-              this._refresh();
-              return;
+            if (!tab.input || !String(tab.input.viewType || '').includes('claudeVSCodePanel')) continue;
+            for (const candidate of titleCandidates) {
+              const short = candidate.substring(0, 15);
+              if (tab.label && (tab.label.includes(short) || short.includes(tab.label.substring(0, 15)))) {
+                await vscode.window.tabGroups.close(tab);
+                closed = true;
+                break;
+              }
             }
+            if (closed) break;
           }
         }
-        vscode.window.showInformationMessage('没有找到对应的 Claude Code 窗口');
+        if (!closed) vscode.window.showInformationMessage('没有找到对应的 Claude Code 窗口');
         this._refresh();
         break;
       }

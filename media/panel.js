@@ -14,6 +14,11 @@
     vscode.postMessage({ type: 'refresh' });
   });
 
+  const maxGroupsInput = document.getElementById('input-max-groups');
+  maxGroupsInput.addEventListener('change', () => {
+    vscode.postMessage({ type: 'set-max-groups', value: parseInt(maxGroupsInput.value) || 4 });
+  });
+
   document.getElementById('btn-patch').addEventListener('click', () => {
     vscode.postMessage({ type: 'patch-claude' });
   });
@@ -29,6 +34,9 @@
       case 'update-cards':
         cards = msg.cards;
         renderCards();
+        break;
+      case 'set-max-groups':
+        maxGroupsInput.value = msg.value;
         break;
     }
   });

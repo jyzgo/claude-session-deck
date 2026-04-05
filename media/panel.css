@@ -292,6 +292,25 @@ body {
   gap: 8px;
 }
 
+.max-groups-label {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground, #888);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.max-groups-input {
+  width: 36px;
+  padding: 2px 4px;
+  border: 1px solid var(--vscode-input-border, #555);
+  border-radius: 3px;
+  background: var(--vscode-input-background, #1e1e1e);
+  color: var(--vscode-input-foreground, #ccc);
+  font-size: 11px;
+  text-align: center;
+}
+
 /* Import list */
 .import-list {
   overflow-y: auto;

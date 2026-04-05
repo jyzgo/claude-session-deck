@@ -55,6 +55,8 @@ class SessionManagerPanel {
     this._context = context;
     this._store = new CardStore(context.globalState);
 
+    this._maxGroups = context.globalState.get('claude-session-manager.maxGroups', 5);
+
     this._panel.webview.html = this._getHtml();
     this._panel.onDidDispose(() => {
       SessionManagerPanel.currentPanel = undefined;
@@ -122,11 +124,29 @@ class SessionManagerPanel {
     });
 
     this._panel.webview.postMessage({ type: 'update-cards', cards: mergedCards });
+    this._panel.webview.postMessage({ type: 'set-max-groups', value: this._maxGroups });
   }
 
   async _handleMessage(msg) {
     switch (msg.type) {
       case 'open-session': {
+        // Count current Claude Code tabs
+        const claudeTabs = [];
+        for (const g of vscode.window.tabGroups.all) {
+          for (const tab of g.tabs) {
+            if (tab.input && String(tab.input.viewType || '').includes('claudeVSCodePanel')) {
+              claudeTabs.push({ tab, group: g });
+            }
+          }
+        }
+
+        // If at limit, close the oldest (first found) Claude tab to make room
+        if (claudeTabs.length >= this._maxGroups) {
+          // Close the last one (least recently used is hard to determine, close last in list)
+          const toClose = claudeTabs[claudeTabs.length - 1];
+          await vscode.window.tabGroups.close(toClose.tab);
+        }
+
         const usedColumns = new Set();
         for (const g of vscode.window.tabGroups.all) {
           if (g.viewColumn !== undefined) usedColumns.add(g.viewColumn);
@@ -136,9 +156,9 @@ class SessionManagerPanel {
           if (!usedColumns.has(c)) { col = c; break; }
         }
         const color = colorForSession(msg.sessionId);
-        const allSessions = getAllSessions();
-        const session = allSessions.find(s => s.sessionId === msg.sessionId);
-        const title = session ? (session.aiTitle || session.firstPrompt.substring(0, 30)) : msg.sessionId.substring(0, 8);
+        const allSessions3 = getAllSessions();
+        const session3 = allSessions3.find(s => s.sessionId === msg.sessionId);
+        const title = session3 ? (session3.displayTitle || session3.firstPrompt.substring(0, 30)) : msg.sessionId.substring(0, 8);
 
         await vscode.commands.executeCommand('claude-vscode.editor.open', msg.sessionId, undefined, col);
         await vscode.commands.executeCommand('workbench.action.evenEditorWidths');
@@ -214,6 +234,11 @@ class SessionManagerPanel {
         this._refresh();
         break;
 
+      case 'set-max-groups':
+        this._maxGroups = Math.max(1, Math.min(9, msg.value || 5));
+        this._context.globalState.update('claude-session-manager.maxGroups', this._maxGroups);
+        break;
+
       case 'refresh':
         this._refresh();
         break;
@@ -252,6 +277,7 @@ class SessionManagerPanel {
   <div class="toolbar">
     <h2 class="toolbar-title">Claude Sessions</h2>
     <div class="toolbar-actions">
+      <label class="max-groups-label">窗口上限 <input id="input-max-groups" type="number" min="1" max="9" value="5" class="max-groups-input"></label>
       <button id="btn-patch" class="btn">配置颜色</button>
       <button id="btn-refresh" class="btn">刷新</button>
     </div>

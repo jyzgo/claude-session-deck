@@ -8,69 +8,12 @@ const { colorForSession, PALETTE } = require('./colorUtil');
 
 function patchClaudeExtension() {
   try {
-    const extBase = path.join(os.homedir(), '.vscode', 'extensions');
-    const dirs = fs.readdirSync(extBase).filter(d => d.startsWith('anthropic.claude-code-'));
-    if (dirs.length === 0) return { ok: false, error: '未找到 Claude Code 扩展' };
-
-    const extDir = path.join(extBase, dirs[dirs.length - 1]);
-    const extFile = path.join(extDir, 'extension.js');
-    let content = fs.readFileSync(extFile, 'utf-8');
-
-    if (content.includes('__SESSION_COLOR_PATCH__')) {
-      return { ok: true, already: true };
-    }
-
-    fs.writeFileSync(extFile + '.bak', content);
-
-    const templateStart = content.indexOf('return`<!DOCTYPE html');
-    if (templateStart === -1) return { ok: false, error: '找不到 HTML 模板' };
-
-    const bodyEnd = content.indexOf('</body>', templateStart);
-    if (bodyEnd === -1) return { ok: false, error: '找不到 </body>' };
-
-    const paletteStr = JSON.stringify(PALETTE);
-
-    const script = `<script nonce="\${q}">
-/* __SESSION_COLOR_PATCH__ */
-(function(){
-  var P=${paletteStr};
-  function hash(s){var h=0;for(var i=0;i<s.length;i++)h=((h<<5)-h+s.charCodeAt(i))|0;return Math.abs(h);}
-  var _sid=null;
-  function applyColor(sid){
-    if(!sid)return;_sid=sid;
-    var existing=document.getElementById('__scp');if(existing)existing.remove();
-    var c=P[hash(sid)%P.length];
-    var s=document.createElement('style');s.id='__scp';
-    s.textContent='body::before,body::after{content:"";position:fixed;left:0;right:0;height:3px;background:'+c+';z-index:99999;pointer-events:none;}body::before{top:0;}body::after{bottom:0;}';
-    document.head.appendChild(s);
-  }
-  function checkAttr(){
-    var r=document.getElementById('root');if(!r)return;
-    var sid=r.getAttribute('data-initial-session');if(sid)applyColor(sid);
-  }
-  checkAttr();
-  window.addEventListener('message',function(e){
-    if(!e.data||_sid)return;
-    try{
-      var d=e.data;var msg=d.message||d;var req=msg.request||msg;
-      if(req.type==='session_states_update'&&req.activeSessionId){applyColor(req.activeSessionId);return;}
-      if(req.sessionId&&typeof req.sessionId==='string'&&req.sessionId.includes('-')){applyColor(req.sessionId);return;}
-      var str=JSON.stringify(d);var m=str.match(/"sessionId":"([a-f0-9-]{36})"/);
-      if(m)applyColor(m[1]);
-    }catch(ex){}
-  });
-  var obs=new MutationObserver(function(){if(!_sid)checkAttr();});
-  obs.observe(document.getElementById('root')||document.body,{attributes:true,childList:true,subtree:true});
-  setTimeout(checkAttr,300);setTimeout(checkAttr,1000);setTimeout(checkAttr,3000);
-})();
-</script>
-      `;
-
-    content = content.substring(0, bodyEnd) + script + content.substring(bodyEnd);
-    fs.writeFileSync(extFile, content);
-    return { ok: true };
+    const { execSync } = require('child_process');
+    const patchScript = path.join(__dirname, '..', 'patch-claude.js');
+    const output = execSync(`node "${patchScript}"`, { encoding: 'utf-8' });
+    return { ok: true, output };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: e.stderr || e.message };
   }
 }
 
@@ -100,6 +43,11 @@ class SessionManagerPanel {
     );
 
     SessionManagerPanel.currentPanel = new SessionManagerPanel(panel, context);
+
+    // Lock the editor group so it doesn't resize when other groups open/close
+    setTimeout(() => {
+      vscode.commands.executeCommand('workbench.action.lockEditorGroup');
+    }, 500);
   }
 
   constructor(panel, context) {

@@ -19,95 +19,62 @@ if (dirs.length === 0) {
 }
 
 const extDir = path.join(extBase, dirs[dirs.length - 1]);
-const extFile = path.join(extDir, 'extension.js');
+const paletteStr = JSON.stringify(PALETTE);
 
-let content = fs.readFileSync(extFile, 'utf-8');
+// SAFE: only append to webview/index.js
+// Simple approach: hash document.body.innerText (every session has unique content)
+const colorScript = `
+;/* __SESSION_COLOR_PATCH__ */
+(function(){
+  if(window.__SCP_LOADED)return;window.__SCP_LOADED=true;
+  var P=${paletteStr};
+  function hash(s){var h=0;for(var i=0;i<s.length;i++)h=((h<<5)-h+s.charCodeAt(i))|0;return Math.abs(h);}
+  var _applied=false;
+
+  function applyColor(text){
+    var existing=document.getElementById('__scp');if(existing)existing.remove();
+    var c=P[hash(text)%P.length];
+    var s=document.createElement('style');s.id='__scp';
+    s.textContent='body{border:3px solid '+c+';border-radius:4px;box-sizing:border-box;}';
+    document.head.appendChild(s);
+    _applied=true;
+  }
+
+  function tryApply(){
+    // Priority 1: data-initial-session
+    var r=document.getElementById('root');
+    if(r){
+      var sid=r.getAttribute('data-initial-session');
+      if(sid){applyColor(sid);return true;}
+    }
+    // Priority 2: body text content (unique per session)
+    var text=document.body.innerText.trim();
+    if(text.length>50){
+      applyColor(text.substring(0,300));
+      return true;
+    }
+    return false;
+  }
+
+  // Poll: try immediately, then every 500ms, keep trying for 30s
+  tryApply();
+  var count=0;
+  var iv=setInterval(function(){
+    count++;
+    if(tryApply()||count>60){clearInterval(iv);}
+  },500);
+})();
+`;
+
+const webviewJs = path.join(extDir, 'webview', 'index.js');
+let content = fs.readFileSync(webviewJs, 'utf-8');
 
 if (content.includes('__SESSION_COLOR_PATCH__')) {
   console.log('Already patched, skipping.');
   process.exit(0);
 }
 
-fs.writeFileSync(extFile + '.bak', content);
-
-const templateStart = content.indexOf('return`<!DOCTYPE html');
-if (templateStart === -1) {
-  console.error('Could not find HTML template');
-  process.exit(1);
-}
-
-const bodyEnd = content.indexOf('</body>', templateStart);
-if (bodyEnd === -1) {
-  console.error('Could not find </body>');
-  process.exit(1);
-}
-
-// Strategy:
-// 1. Try data-initial-session first (works for sessions opened from our manager)
-// 2. Intercept postMessage from extension: messages contain session_states_update
-//    with activeSessionId — this tells us which session THIS panel is showing
-// 3. Also intercept the initial "connected" type messages that carry sessionId
-// The nonce variable is `q` in the minified code.
-const paletteStr = JSON.stringify(PALETTE);
-
-const script = `<script nonce="\${q}">
-/* __SESSION_COLOR_PATCH__ */
-(function(){
-  var P=${paletteStr};
-  function hash(s){var h=0;for(var i=0;i<s.length;i++)h=((h<<5)-h+s.charCodeAt(i))|0;return Math.abs(h);}
-  var _sid=null;
-
-  function applyColor(sid){
-    if(!sid)return;
-    _sid=sid;
-    var existing=document.getElementById('__scp');
-    if(existing)existing.remove();
-    var c=P[hash(sid)%P.length];
-    var s=document.createElement('style');s.id='__scp';
-    s.textContent='body::before,body::after{content:"";position:fixed;left:0;right:0;height:3px;background:'+c+';z-index:99999;pointer-events:none;}body::before{top:0;}body::after{bottom:0;}';
-    document.head.appendChild(s);
-  }
-
-  // Method 1: data-initial-session (set at creation for sessions opened with explicit ID)
-  function checkAttr(){
-    var r=document.getElementById('root');
-    if(!r)return;
-    var sid=r.getAttribute('data-initial-session');
-    if(sid)applyColor(sid);
-  }
-  checkAttr();
-
-  // Method 2: Intercept messages from extension to find sessionId
-  window.addEventListener('message',function(e){
-    if(!e.data||_sid)return;
-    try{
-      var d=e.data;
-      // from-extension wrapper
-      var msg=d.message||d;
-      var req=msg.request||msg;
-      // session_states_update has activeSessionId
-      if(req.type==='session_states_update'&&req.activeSessionId){
-        applyColor(req.activeSessionId);return;
-      }
-      // Any message with sessionId field
-      if(req.sessionId&&typeof req.sessionId==='string'&&req.sessionId.includes('-')){
-        applyColor(req.sessionId);return;
-      }
-      // Deep scan for sessionId in message
-      var str=JSON.stringify(d);
-      var m=str.match(/"sessionId":"([a-f0-9-]{36})"/);
-      if(m)applyColor(m[1]);
-    }catch(ex){}
-  });
-
-  // Method 3: MutationObserver for late attribute setting
-  var obs=new MutationObserver(function(){if(!_sid)checkAttr();});
-  obs.observe(document.getElementById('root')||document.body,{attributes:true,childList:true,subtree:true});
-  setTimeout(checkAttr,300);setTimeout(checkAttr,1000);setTimeout(checkAttr,3000);
-})();
-</script>
-      `;
-
-content = content.substring(0, bodyEnd) + script + content.substring(bodyEnd);
-fs.writeFileSync(extFile, content);
-console.log('Patched', path.basename(extDir), 'successfully!');
+fs.writeFileSync(webviewJs + '.bak', content);
+content += colorScript;
+fs.writeFileSync(webviewJs, content);
+console.log('Patched webview/index.js (append only, safe)');

@@ -1,7 +1,78 @@
 const vscode = require('vscode');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const { getAllSessions, deleteSession } = require('./sessionReader');
 const { CardStore } = require('./cardStore');
+const { colorForSession, PALETTE } = require('./colorUtil');
+
+function patchClaudeExtension() {
+  try {
+    const extBase = path.join(os.homedir(), '.vscode', 'extensions');
+    const dirs = fs.readdirSync(extBase).filter(d => d.startsWith('anthropic.claude-code-'));
+    if (dirs.length === 0) return { ok: false, error: '未找到 Claude Code 扩展' };
+
+    const extDir = path.join(extBase, dirs[dirs.length - 1]);
+    const extFile = path.join(extDir, 'extension.js');
+    let content = fs.readFileSync(extFile, 'utf-8');
+
+    if (content.includes('__SESSION_COLOR_PATCH__')) {
+      return { ok: true, already: true };
+    }
+
+    fs.writeFileSync(extFile + '.bak', content);
+
+    const templateStart = content.indexOf('return`<!DOCTYPE html');
+    if (templateStart === -1) return { ok: false, error: '找不到 HTML 模板' };
+
+    const bodyEnd = content.indexOf('</body>', templateStart);
+    if (bodyEnd === -1) return { ok: false, error: '找不到 </body>' };
+
+    const paletteStr = JSON.stringify(PALETTE);
+
+    const script = `<script nonce="\${q}">
+/* __SESSION_COLOR_PATCH__ */
+(function(){
+  var P=${paletteStr};
+  function hash(s){var h=0;for(var i=0;i<s.length;i++)h=((h<<5)-h+s.charCodeAt(i))|0;return Math.abs(h);}
+  var _sid=null;
+  function applyColor(sid){
+    if(!sid)return;_sid=sid;
+    var existing=document.getElementById('__scp');if(existing)existing.remove();
+    var c=P[hash(sid)%P.length];
+    var s=document.createElement('style');s.id='__scp';
+    s.textContent='body::before,body::after{content:"";position:fixed;left:0;right:0;height:3px;background:'+c+';z-index:99999;pointer-events:none;}body::before{top:0;}body::after{bottom:0;}';
+    document.head.appendChild(s);
+  }
+  function checkAttr(){
+    var r=document.getElementById('root');if(!r)return;
+    var sid=r.getAttribute('data-initial-session');if(sid)applyColor(sid);
+  }
+  checkAttr();
+  window.addEventListener('message',function(e){
+    if(!e.data||_sid)return;
+    try{
+      var d=e.data;var msg=d.message||d;var req=msg.request||msg;
+      if(req.type==='session_states_update'&&req.activeSessionId){applyColor(req.activeSessionId);return;}
+      if(req.sessionId&&typeof req.sessionId==='string'&&req.sessionId.includes('-')){applyColor(req.sessionId);return;}
+      var str=JSON.stringify(d);var m=str.match(/"sessionId":"([a-f0-9-]{36})"/);
+      if(m)applyColor(m[1]);
+    }catch(ex){}
+  });
+  var obs=new MutationObserver(function(){if(!_sid)checkAttr();});
+  obs.observe(document.getElementById('root')||document.body,{attributes:true,childList:true,subtree:true});
+  setTimeout(checkAttr,300);setTimeout(checkAttr,1000);setTimeout(checkAttr,3000);
+})();
+</script>
+      `;
+
+    content = content.substring(0, bodyEnd) + script + content.substring(bodyEnd);
+    fs.writeFileSync(extFile, content);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
 
 class SessionManagerPanel {
   static currentPanel = undefined;
@@ -37,7 +108,16 @@ class SessionManagerPanel {
     this._store = new CardStore(context.globalState);
 
     this._panel.webview.html = this._getHtml();
-    this._panel.onDidDispose(() => { SessionManagerPanel.currentPanel = undefined; }, null, context.subscriptions);
+    this._panel.onDidDispose(() => {
+      SessionManagerPanel.currentPanel = undefined;
+      context.globalState.update('claude-session-manager.panelOpen', false);
+    }, null, context.subscriptions);
+
+    this._panel.onDidChangeViewState(() => {
+      if (this._panel.visible) {
+        this._refresh();
+      }
+    }, null, context.subscriptions);
 
     this._panel.webview.onDidReceiveMessage(
       msg => this._handleMessage(msg),
@@ -45,25 +125,33 @@ class SessionManagerPanel {
       context.subscriptions,
     );
 
-    // Initial data push
     this._refresh();
   }
 
   _refresh() {
     const allSessions = getAllSessions();
-    const cards = this._store.getCards();
-    const cardIds = new Set(cards.map(c => c.sessionId));
 
-    // Merge session data with card config; pinned first, then by order
+    const existingIds = this._store.getSessionIds();
+    for (const session of allSessions) {
+      if (!existingIds.has(session.sessionId)) {
+        this._store.addCard(session.sessionId);
+      }
+    }
+
+    const cards = this._store.getCards();
+
     const mergedCards = [];
     for (const card of cards) {
       const session = allSessions.find(s => s.sessionId === card.sessionId);
       if (session) {
-        mergedCards.push({ ...session, ...card });
+        mergedCards.push({
+          ...session,
+          ...card,
+          color: colorForSession(card.sessionId),
+        });
       }
     }
 
-    // Sort: pinned first, then by order
     mergedCards.sort((a, b) => {
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
@@ -73,18 +161,20 @@ class SessionManagerPanel {
     this._panel.webview.postMessage({ type: 'update-cards', cards: mergedCards });
   }
 
-  _sendAvailableSessions() {
-    const allSessions = getAllSessions();
-    const cardIds = this._store.getSessionIds();
-    const available = allSessions.filter(s => !cardIds.has(s.sessionId));
-    this._panel.webview.postMessage({ type: 'available-sessions', sessions: available });
-  }
-
   async _handleMessage(msg) {
     switch (msg.type) {
-      case 'open-session':
-        await vscode.commands.executeCommand('claude-vscode.editor.open', msg.sessionId);
+      case 'open-session': {
+        const usedColumns = new Set();
+        for (const g of vscode.window.tabGroups.all) {
+          if (g.viewColumn !== undefined) usedColumns.add(g.viewColumn);
+        }
+        let col = vscode.ViewColumn.Beside;
+        for (let c = vscode.ViewColumn.One; c <= vscode.ViewColumn.Nine; c++) {
+          if (!usedColumns.has(c)) { col = c; break; }
+        }
+        await vscode.commands.executeCommand('claude-vscode.editor.open', msg.sessionId, undefined, col);
         break;
+      }
 
       case 'remove-card':
         this._store.removeCard(msg.sessionId);
@@ -105,21 +195,6 @@ class SessionManagerPanel {
         break;
       }
 
-      case 'request-import':
-        this._sendAvailableSessions();
-        break;
-
-      case 'add-card':
-        this._store.addCard(msg.sessionId);
-        this._refresh();
-        this._sendAvailableSessions();
-        break;
-
-      case 'update-color':
-        this._store.updateCard(msg.sessionId, { color: msg.color });
-        this._refresh();
-        break;
-
       case 'toggle-pin':
         this._store.updateCard(msg.sessionId, { pinned: msg.pinned });
         this._refresh();
@@ -138,6 +213,18 @@ class SessionManagerPanel {
       case 'refresh':
         this._refresh();
         break;
+
+      case 'patch-claude': {
+        const result = patchClaudeExtension(this._context);
+        if (result.ok) {
+          vscode.window.showInformationMessage('颜色配置成功！请重启 VS Code 生效。', '重启').then(choice => {
+            if (choice === '重启') vscode.commands.executeCommand('workbench.action.reloadWindow');
+          });
+        } else {
+          vscode.window.showErrorMessage(`配置失败: ${result.error}`);
+        }
+        break;
+      }
     }
   }
 
@@ -161,7 +248,7 @@ class SessionManagerPanel {
   <div class="toolbar">
     <h2 class="toolbar-title">Claude Sessions</h2>
     <div class="toolbar-actions">
-      <button id="btn-import" class="btn btn-primary">+ 导入会话</button>
+      <button id="btn-patch" class="btn">配置颜色</button>
       <button id="btn-refresh" class="btn">刷新</button>
     </div>
   </div>
@@ -169,28 +256,7 @@ class SessionManagerPanel {
   <div id="cards-container" class="cards-container"></div>
 
   <div id="empty-state" class="empty-state" style="display:none;">
-    <p>还没有会话卡片</p>
-    <p>点击「导入会话」添加当前项目的 Claude 会话</p>
-  </div>
-
-  <!-- Import dialog -->
-  <div id="import-overlay" class="overlay" style="display:none;">
-    <div class="modal">
-      <div class="modal-header">
-        <h3>导入会话</h3>
-        <button id="btn-close-import" class="btn-icon">X</button>
-      </div>
-      <div id="import-list" class="import-list"></div>
-      <div id="import-empty" class="import-empty" style="display:none;">
-        所有会话都已在卡片组中
-      </div>
-    </div>
-  </div>
-
-  <!-- Color picker popup -->
-  <div id="color-picker" class="color-picker" style="display:none;">
-    <div class="color-options"></div>
-    <input type="text" class="color-input" placeholder="#hex" maxlength="7">
+    <p>当前项目还没有 Claude 会话</p>
   </div>
 
   <script nonce="${nonce}" src="${jsUri}"></script>

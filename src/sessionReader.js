@@ -40,23 +40,27 @@ function findProjectDir() {
 }
 
 /**
- * Get the set of currently active session IDs by checking ~/.claude/sessions/*.json
+ * Get the set of currently active session IDs.
+ * Cross-references ~/.claude/sessions/*.json with ~/.claude/ide/*.lock
+ * A session is active only if its PID has a corresponding IDE lock file.
  */
 function getActiveSessionIds() {
   const active = new Set();
   try {
+    const ideDir = path.join(CLAUDE_DIR, 'ide');
+    const lockPids = new Set();
+    try {
+      for (const f of fs.readdirSync(ideDir)) {
+        if (f.endsWith('.lock')) lockPids.add(f.replace('.lock', ''));
+      }
+    } catch {}
+
     const files = fs.readdirSync(SESSIONS_DIR).filter(f => f.endsWith('.json'));
     for (const f of files) {
       try {
         const data = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, f), 'utf-8'));
-        if (data.sessionId) {
-          // Check if the process is still alive
-          try {
-            process.kill(data.pid, 0);
-            active.add(data.sessionId);
-          } catch {
-            // Process not running
-          }
+        if (data.sessionId && lockPids.has(String(data.pid))) {
+          active.add(data.sessionId);
         }
       } catch {}
     }
@@ -74,6 +78,8 @@ function parseSessionFile(filePath, sessionId, activeIds) {
   const lines = content.split('\n').filter(l => l.trim());
 
   let firstPrompt = '';
+  let lastResponse = '';
+  let aiTitle = '';
   let slug = '';
   let gitBranch = '';
   let firstTimestamp = null;
@@ -93,6 +99,7 @@ function parseSessionFile(filePath, sessionId, activeIds) {
 
       if (obj.slug && !slug) slug = obj.slug;
       if (obj.gitBranch && !gitBranch) gitBranch = obj.gitBranch;
+      if (obj.type === 'ai-title' && obj.aiTitle) aiTitle = obj.aiTitle;
 
       if (obj.type === 'user') {
         userTurns++;
@@ -107,6 +114,13 @@ function parseSessionFile(filePath, sessionId, activeIds) {
         }
       } else if (obj.type === 'assistant') {
         assistantTurns++;
+        const c = obj.message?.content;
+        if (typeof c === 'string' && c.trim()) {
+          lastResponse = c;
+        } else if (Array.isArray(c)) {
+          const t = [...c].reverse().find(p => p.type === 'text' && p.text?.trim());
+          if (t) lastResponse = t.text;
+        }
       }
     } catch {
       // Skip unparseable lines
@@ -115,8 +129,10 @@ function parseSessionFile(filePath, sessionId, activeIds) {
 
   return {
     sessionId,
+    aiTitle,
     slug,
     firstPrompt: firstPrompt.substring(0, 200) || '(empty)',
+    lastResponse: lastResponse.substring(0, 300) || '',
     userTurns,
     assistantTurns,
     totalLines: lines.length,

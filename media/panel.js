@@ -2,47 +2,25 @@
   // @ts-ignore
   const vscode = acquireVsCodeApi();
 
-  const COLORS = [
-    '#4a9eff', '#a78bfa', '#f472b6', '#fb923c',
-    '#facc15', '#4ade80', '#2dd4bf', '#64748b',
-    '#ef4444', '#22d3ee', '#818cf8', '#e879f9',
-  ];
-
   let cards = [];
   let draggedId = null;
 
   // ── Elements ───────────────────────────────
   const cardsContainer = document.getElementById('cards-container');
   const emptyState = document.getElementById('empty-state');
-  const importOverlay = document.getElementById('import-overlay');
-  const importList = document.getElementById('import-list');
-  const importEmpty = document.getElementById('import-empty');
-  const colorPicker = document.getElementById('color-picker');
 
   // ── Toolbar buttons ────────────────────────
-  document.getElementById('btn-import').addEventListener('click', () => {
-    vscode.postMessage({ type: 'request-import' });
-    importOverlay.style.display = 'flex';
-  });
-
   document.getElementById('btn-refresh').addEventListener('click', () => {
     vscode.postMessage({ type: 'refresh' });
   });
 
-  document.getElementById('btn-close-import').addEventListener('click', () => {
-    importOverlay.style.display = 'none';
+  document.getElementById('btn-patch').addEventListener('click', () => {
+    vscode.postMessage({ type: 'patch-claude' });
   });
 
-  importOverlay.addEventListener('click', (e) => {
-    if (e.target === importOverlay) importOverlay.style.display = 'none';
-  });
-
-  // Close color picker on outside click
-  document.addEventListener('click', (e) => {
-    if (colorPicker.style.display !== 'none' && !colorPicker.contains(e.target) && !e.target.closest('.btn-color')) {
-      colorPicker.style.display = 'none';
-    }
-  });
+  // Prevent browser default drop behavior
+  document.addEventListener('dragover', (e) => e.preventDefault());
+  document.addEventListener('drop', (e) => e.preventDefault());
 
   // ── Messages from extension ────────────────
   window.addEventListener('message', (event) => {
@@ -51,9 +29,6 @@
       case 'update-cards':
         cards = msg.cards;
         renderCards();
-        break;
-      case 'available-sessions':
-        renderImportList(msg.sessions);
         break;
     }
   });
@@ -74,7 +49,6 @@
 
   function truncate(str, len) {
     if (!str) return '';
-    // First line only, then truncate
     const first = str.split('\n')[0];
     return first.length > len ? first.substring(0, len) + '...' : first;
   }
@@ -113,37 +87,35 @@
       div.style.setProperty('--card-color', card.color);
     }
 
-    const title = card.label || truncate(card.firstPrompt, 80) || card.slug || card.sessionId.substring(0, 8);
-    const pinIcon = card.pinned ? '<span class="pin-badge">PIN</span>' : '';
+    const title = card.label || card.aiTitle || truncate(card.firstPrompt, 80) || card.slug || card.sessionId.substring(0, 8);
+
+    const snippet = card.lastResponse ? escapeHtml(truncate(card.lastResponse, 150)) : (card.firstPrompt ? escapeHtml(truncate(card.firstPrompt, 150)) : '');
 
     div.innerHTML = `
-      <div class="card-header">
-        <div class="card-title">${pinIcon}${escapeHtml(title)}</div>
-        <div class="card-header-actions">
-          <button class="btn-icon btn-pin" title="${card.pinned ? '取消置顶' : '置顶'}">${card.pinned ? '&#9733;' : '&#9734;'}</button>
-          <button class="btn-icon btn-color" title="颜色">&#9679;</button>
-          <button class="btn-icon btn-remove" title="移除卡片 (不删除会话)">&#10005;</button>
+      <div class="card-body">
+        <div class="card-left">
+          <div class="card-header">
+            <button class="btn-icon btn-pin" title="${card.pinned ? '取消置顶' : '置顶'}">${card.pinned ? '&#9733;' : '&#9734;'}</button>
+            <div class="card-title"><span class="card-title-text" data-session-id="${card.sessionId}">${escapeHtml(title)}</span></div>
+          </div>
+          ${snippet ? `<div class="card-snippet">${snippet}</div>` : ''}
+          <div class="card-meta">
+            <span class="card-meta-item">${card.userTurns}轮</span>
+            <span class="card-meta-item">${formatSize(card.fileSize)}</span>
+            ${card.gitBranch ? `<span class="card-meta-item">${escapeHtml(card.gitBranch)}</span>` : ''}
+            <span class="card-meta-item ${card.isActive ? 'status-active' : 'status-inactive'}">
+              ${card.isActive ? '● 活跃' : '○ 空闲'}
+            </span>
+            <span class="card-meta-item">${formatTime(card.lastModified)}</span>
+          </div>
         </div>
-      </div>
-      ${card.label ? '' : card.firstPrompt ? `<div class="card-label" data-session-id="${card.sessionId}">${escapeHtml(truncate(card.firstPrompt, 120))}</div>` : ''}
-      ${card.label && card.firstPrompt ? `<div class="card-label">${escapeHtml(truncate(card.firstPrompt, 120))}</div>` : ''}
-      <div class="card-meta">
-        <span class="card-meta-item"><span class="meta-label">对话</span> ${card.userTurns} 轮</span>
-        <span class="card-meta-item"><span class="meta-label">大小</span> ${formatSize(card.fileSize)}</span>
-        ${card.gitBranch ? `<span class="card-meta-item"><span class="meta-label">分支</span> ${escapeHtml(card.gitBranch)}</span>` : ''}
-        <span class="card-meta-item ${card.isActive ? 'status-active' : 'status-inactive'}">
-          ${card.isActive ? '● 活跃' : '○ 空闲'}
-        </span>
-      </div>
-      <div class="card-meta">
-        <span class="card-meta-item"><span class="meta-label">开始</span> ${formatTime(card.startTime)}</span>
-        <span class="card-meta-item"><span class="meta-label">更新</span> ${formatTime(card.lastModified)}</span>
-        ${card.slug ? `<span class="card-meta-item"><span class="meta-label">slug</span> ${escapeHtml(card.slug)}</span>` : ''}
-      </div>
-      <div class="card-actions">
-        <button class="btn btn-primary btn-open">打开</button>
-        <span class="spacer"></span>
-        <button class="btn btn-danger btn-delete">删除会话</button>
+        <div class="card-right">
+          <div class="card-right-icons">
+            <button class="btn-icon btn-delete" title="删除会话">&#128465;</button>
+            <button class="btn-icon btn-remove" title="移除卡片">&#10005;</button>
+          </div>
+          <button class="btn btn-primary btn-sm btn-open">打开</button>
+        </div>
       </div>
     `;
 
@@ -152,7 +124,8 @@
       vscode.postMessage({ type: 'open-session', sessionId: card.sessionId });
     });
 
-    div.querySelector('.btn-delete').addEventListener('click', () => {
+    div.querySelector('.btn-delete').addEventListener('click', (e) => {
+      e.stopPropagation();
       vscode.postMessage({ type: 'delete-session', sessionId: card.sessionId });
     });
 
@@ -164,18 +137,16 @@
       vscode.postMessage({ type: 'toggle-pin', sessionId: card.sessionId, pinned: !card.pinned });
     });
 
-    div.querySelector('.btn-color').addEventListener('click', (e) => {
+    div.querySelector('.card-title-text').addEventListener('dblclick', (e) => {
       e.stopPropagation();
-      showColorPicker(e.target, card);
+      startTitleEdit(e.target, card.sessionId, card.label || '');
     });
 
-    // ── Label editing ──
-    const labelEl = div.querySelector('.card-label[data-session-id]');
-    if (labelEl) {
-      labelEl.addEventListener('dblclick', () => {
-        startLabelEdit(labelEl, card.sessionId);
-      });
-    }
+    // ── Double-click card body to open session ──
+    div.addEventListener('dblclick', (e) => {
+      if (e.target.closest('.btn-icon, .btn, button, input, .card-title-text')) return;
+      vscode.postMessage({ type: 'open-session', sessionId: card.sessionId });
+    });
 
     // ── Drag & drop ──
     div.addEventListener('dragstart', (e) => {
@@ -207,10 +178,8 @@
       e.preventDefault();
       div.classList.remove('drag-over');
       if (draggedId && draggedId !== card.sessionId) {
-        // Build new order: move draggedId before this card
         const orderedIds = cards.map(c => c.sessionId);
         const fromIdx = orderedIds.indexOf(draggedId);
-        const toIdx = orderedIds.indexOf(card.sessionId);
         if (fromIdx !== -1) {
           orderedIds.splice(fromIdx, 1);
           const insertIdx = orderedIds.indexOf(card.sessionId);
@@ -223,64 +192,30 @@
     return div;
   }
 
-  // ── Color picker ───────────────────────────
-  function showColorPicker(anchor, card) {
-    const rect = anchor.getBoundingClientRect();
-    colorPicker.style.display = 'block';
-    colorPicker.style.top = (rect.bottom + 4) + 'px';
-    colorPicker.style.left = Math.min(rect.left, window.innerWidth - 180) + 'px';
-
-    const optionsEl = colorPicker.querySelector('.color-options');
-    optionsEl.innerHTML = '';
-
-    for (const color of COLORS) {
-      const swatch = document.createElement('div');
-      swatch.className = 'color-swatch' + (card.color === color ? ' active' : '');
-      swatch.style.background = color;
-      swatch.addEventListener('click', () => {
-        vscode.postMessage({ type: 'update-color', sessionId: card.sessionId, color });
-        colorPicker.style.display = 'none';
-      });
-      optionsEl.appendChild(swatch);
-    }
-
-    const input = colorPicker.querySelector('.color-input');
-    input.value = card.color || '';
-    // Replace old listener
-    const newInput = input.cloneNode(true);
-    input.parentNode.replaceChild(newInput, input);
-    newInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        const val = newInput.value.trim();
-        if (/^#[0-9a-fA-F]{3,6}$/.test(val)) {
-          vscode.postMessage({ type: 'update-color', sessionId: card.sessionId, color: val });
-          colorPicker.style.display = 'none';
-        }
-      }
-    });
-  }
-
-  // ── Label inline edit ──────────────────────
-  function startLabelEdit(el, sessionId) {
+  // ── Title inline edit ──────────────────────
+  function startTitleEdit(el, sessionId, currentLabel) {
     const current = el.textContent;
     const input = document.createElement('input');
-    input.className = 'label-edit';
-    input.value = current;
+    input.className = 'title-edit';
+    input.value = currentLabel || current;
+    input.placeholder = current;
     el.replaceWith(input);
     input.focus();
     input.select();
 
     function finish() {
       const val = input.value.trim();
-      if (val !== current) {
+      if (val !== currentLabel) {
         vscode.postMessage({ type: 'update-label', sessionId, label: val });
       } else {
-        // Restore
-        const newEl = document.createElement('div');
-        newEl.className = 'card-label';
+        const newEl = document.createElement('span');
+        newEl.className = 'card-title-text';
         newEl.dataset.sessionId = sessionId;
         newEl.textContent = current;
-        newEl.addEventListener('dblclick', () => startLabelEdit(newEl, sessionId));
+        newEl.addEventListener('dblclick', (e) => {
+          e.stopPropagation();
+          startTitleEdit(newEl, sessionId, val);
+        });
         input.replaceWith(newEl);
       }
     }
@@ -288,48 +223,7 @@
     input.addEventListener('blur', finish);
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') input.blur();
-      if (e.key === 'Escape') {
-        input.value = current;
-        input.blur();
-      }
+      if (e.key === 'Escape') { input.value = currentLabel; input.blur(); }
     });
-  }
-
-  // ── Import list ────────────────────────────
-  function renderImportList(sessions) {
-    importList.innerHTML = '';
-
-    if (sessions.length === 0) {
-      importList.style.display = 'none';
-      importEmpty.style.display = 'block';
-      return;
-    }
-
-    importList.style.display = 'block';
-    importEmpty.style.display = 'none';
-
-    for (const s of sessions) {
-      const item = document.createElement('div');
-      item.className = 'import-item';
-
-      const title = truncate(s.firstPrompt, 80) || s.slug || s.sessionId.substring(0, 8);
-
-      item.innerHTML = `
-        <div class="import-item-info">
-          <div class="import-item-title">${escapeHtml(title)}</div>
-          <div class="import-item-meta">
-            ${s.userTurns} 轮 | ${formatSize(s.fileSize)} | ${formatTime(s.lastModified)}
-            ${s.slug ? ' | ' + escapeHtml(s.slug) : ''}
-          </div>
-        </div>
-        <button class="btn btn-primary btn-add-card">添加</button>
-      `;
-
-      item.querySelector('.btn-add-card').addEventListener('click', () => {
-        vscode.postMessage({ type: 'add-card', sessionId: s.sessionId });
-      });
-
-      importList.appendChild(item);
-    }
   }
 })();

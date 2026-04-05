@@ -113,61 +113,51 @@ body {
   border-top: 2px solid var(--vscode-focusBorder, #007fd4);
 }
 
-/* Card body: left content + right actions */
+/* Card body: left icons + content */
 .card-body {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
-.card-left {
+.card-left-icons {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 1px;
+}
+
+.card-left-icons .btn-icon {
+  font-size: 14px;
+  padding: 2px 4px;
+  opacity: 0.5;
+}
+
+.card-left-icons .btn-icon:hover {
+  opacity: 1;
+}
+
+.card-left-icons .btn-open {
+  opacity: 0.8;
+  color: var(--vscode-textLink-foreground, #4a9eff);
+}
+
+.card-left-icons .btn-delete:hover {
+  color: var(--vscode-errorForeground, #f44);
+}
+
+.card-left-icons .btn-close:hover {
+  color: var(--vscode-errorForeground, #f44);
+}
+
+.card-content {
   flex: 1;
   min-width: 0;
 }
 
-.card-right {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.card-right-icons {
-  display: flex;
-  gap: 1px;
-}
-
-.card-right-icons .btn-icon {
-  font-size: 12px;
-  padding: 0 3px;
-}
-
-.card-right-icons .btn-delete {
-  opacity: 0.4;
-}
-
-.card-right-icons .btn-delete:hover {
-  opacity: 1;
-  color: var(--vscode-errorForeground, #f44);
-}
-
-.card-right .btn-sm {
-  padding: 2px 10px;
-  font-size: 10px;
-}
-
-/* Card header: [pin] title */
+/* Card header: title */
 .card-header {
-  display: flex;
-  align-items: center;
-  gap: 4px;
   margin-bottom: 3px;
-}
-
-.card-header > .btn-pin {
-  flex-shrink: 0;
-  font-size: 12px;
-  padding: 0 2px;
 }
 
 .card-title {
@@ -371,6 +361,10 @@ body {
 /* ── Title edit ─────────────────────────────── */
 .card-title-text {
   cursor: text;
+}
+
+.card-title-text.title-open {
+  color: #b0e8c0;
 }
 
 .card-title-text:hover {

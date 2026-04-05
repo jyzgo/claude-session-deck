@@ -100,6 +100,7 @@ function parseSessionFile(filePath, sessionId, activeIds) {
       if (obj.slug && !slug) slug = obj.slug;
       if (obj.gitBranch && !gitBranch) gitBranch = obj.gitBranch;
       if (obj.type === 'ai-title' && obj.aiTitle) aiTitle = obj.aiTitle;
+      if (obj.type === 'custom-title' && obj.customTitle) aiTitle = obj.customTitle;
 
       if (obj.type === 'user') {
         userTurns++;

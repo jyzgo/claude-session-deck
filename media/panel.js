@@ -93,11 +93,14 @@
 
     div.innerHTML = `
       <div class="card-body">
-        <div class="card-left">
-          <div class="card-header">
-            <button class="btn-icon btn-pin" title="${card.pinned ? '取消置顶' : '置顶'}">${card.pinned ? '&#9733;' : '&#9734;'}</button>
-            <div class="card-title"><span class="card-title-text" data-session-id="${card.sessionId}">${escapeHtml(title)}</span></div>
-          </div>
+        <div class="card-left-icons">
+          <button class="btn-icon btn-open" title="打开">&#9654;</button>
+          <button class="btn-icon btn-pin" title="${card.pinned ? '取消置顶' : '置顶'}">${card.pinned ? '&#9733;' : '&#9734;'}</button>
+          <button class="btn-icon btn-close" title="关闭窗口">&#10005;</button>
+          <button class="btn-icon btn-delete" title="删除会话">&#128465;</button>
+        </div>
+        <div class="card-content">
+          <div class="card-title"><span class="card-title-text${card.isOpen ? ' title-open' : ''}" data-session-id="${card.sessionId}">${escapeHtml(title)}</span></div>
           ${snippet ? `<div class="card-snippet">${snippet}</div>` : ''}
           <div class="card-meta">
             <span class="card-meta-item">${card.userTurns}轮</span>
@@ -108,13 +111,6 @@
             </span>
             <span class="card-meta-item">${formatTime(card.lastModified)}</span>
           </div>
-        </div>
-        <div class="card-right">
-          <div class="card-right-icons">
-            <button class="btn-icon btn-delete" title="删除会话">&#128465;</button>
-            <button class="btn-icon btn-remove" title="移除卡片">&#10005;</button>
-          </div>
-          <button class="btn btn-primary btn-sm btn-open">打开</button>
         </div>
       </div>
     `;
@@ -129,8 +125,9 @@
       vscode.postMessage({ type: 'delete-session', sessionId: card.sessionId });
     });
 
-    div.querySelector('.btn-remove').addEventListener('click', () => {
-      vscode.postMessage({ type: 'remove-card', sessionId: card.sessionId });
+    div.querySelector('.btn-close').addEventListener('click', (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ type: 'close-session-tab', sessionId: card.sessionId });
     });
 
     div.querySelector('.btn-pin').addEventListener('click', () => {

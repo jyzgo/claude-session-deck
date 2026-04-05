@@ -88,14 +88,26 @@ class SessionManagerPanel {
 
     const cards = this._store.getCards();
 
+    // Detect which sessions have open Claude Code tabs
+    const openTitles = new Set();
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (tab.input && String(tab.input.viewType || '').includes('claudeVSCodePanel')) {
+          openTitles.add(tab.label);
+        }
+      }
+    }
+
     const mergedCards = [];
     for (const card of cards) {
       const session = allSessions.find(s => s.sessionId === card.sessionId);
       if (session) {
+        const title = session.aiTitle || session.firstPrompt.substring(0, 30);
         mergedCards.push({
           ...session,
           ...card,
           color: colorForSession(card.sessionId),
+          isOpen: openTitles.has(title) || [...openTitles].some(t => t.includes(title.substring(0, 20))),
         });
       }
     }
@@ -120,14 +132,45 @@ class SessionManagerPanel {
         for (let c = vscode.ViewColumn.One; c <= vscode.ViewColumn.Nine; c++) {
           if (!usedColumns.has(c)) { col = c; break; }
         }
+        const color = colorForSession(msg.sessionId);
+        const allSessions = getAllSessions();
+        const session = allSessions.find(s => s.sessionId === msg.sessionId);
+        const title = session ? (session.aiTitle || session.firstPrompt.substring(0, 30)) : msg.sessionId.substring(0, 8);
+
         await vscode.commands.executeCommand('claude-vscode.editor.open', msg.sessionId, undefined, col);
+        await vscode.commands.executeCommand('workbench.action.evenEditorWidths');
+
+        // Flash a colored status bar indicator for 3 seconds
+        const indicator = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 999);
+        indicator.text = `$(arrow-right) ${title}`;
+        indicator.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+        indicator.color = color;
+        indicator.show();
+        setTimeout(() => indicator.dispose(), 3000);
         break;
       }
 
-      case 'remove-card':
-        this._store.removeCard(msg.sessionId);
+      case 'close-session-tab': {
+        // Find the matching Claude Code tab by title and close it
+        const allSessions2 = getAllSessions();
+        const sess = allSessions2.find(s => s.sessionId === msg.sessionId);
+        const sessTitle = sess ? sess.aiTitle : '';
+
+        for (const group of vscode.window.tabGroups.all) {
+          for (const tab of group.tabs) {
+            // Only match claudeVSCodePanel (not our own claudeSessionManager)
+            if (tab.input && String(tab.input.viewType || '').includes('claudeVSCodePanel') &&
+                sessTitle && tab.label && tab.label.includes(sessTitle.substring(0, 15))) {
+              await vscode.window.tabGroups.close(tab);
+              this._refresh();
+              return;
+            }
+          }
+        }
+        vscode.window.showInformationMessage('没有找到对应的 Claude Code 窗口');
         this._refresh();
         break;
+      }
 
       case 'delete-session': {
         const answer = await vscode.window.showWarningMessage(

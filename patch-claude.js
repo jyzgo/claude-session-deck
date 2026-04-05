@@ -22,46 +22,58 @@ const extDir = path.join(extBase, dirs[dirs.length - 1]);
 const paletteStr = JSON.stringify(PALETTE);
 
 // SAFE: only append to webview/index.js
-// Simple approach: hash document.body.innerText (every session has unique content)
 const colorScript = `
 ;/* __SESSION_COLOR_PATCH__ */
 (function(){
   if(window.__SCP_LOADED)return;window.__SCP_LOADED=true;
   var P=${paletteStr};
   function hash(s){var h=0;for(var i=0;i<s.length;i++)h=((h<<5)-h+s.charCodeAt(i))|0;return Math.abs(h);}
-  var _applied=false;
+  var _sid=null;
 
-  function applyColor(text){
+  function applyColor(sid){
+    if(!sid||_sid===sid)return;_sid=sid;
     var existing=document.getElementById('__scp');if(existing)existing.remove();
-    var c=P[hash(text)%P.length];
+    var c=P[hash(sid)%P.length];
     var s=document.createElement('style');s.id='__scp';
-    s.textContent='body{border:3px solid '+c+';border-radius:4px;box-sizing:border-box;}';
+    s.textContent='body{border:3px solid '+c+' !important;border-radius:4px;box-sizing:border-box;}';
     document.head.appendChild(s);
-    _applied=true;
   }
 
-  function tryApply(){
-    // Priority 1: data-initial-session
-    var r=document.getElementById('root');
-    if(r){
-      var sid=r.getAttribute('data-initial-session');
-      if(sid){applyColor(sid);return true;}
-    }
-    // Priority 2: body text content (unique per session)
-    var text=document.body.innerText.trim();
-    if(text.length>50){
-      applyColor(text.substring(0,300));
-      return true;
-    }
+  // Method 1: data-initial-session (set when opened from session manager)
+  function checkAttr(){
+    var r=document.getElementById('root');if(!r)return false;
+    var sid=r.getAttribute('data-initial-session');
+    if(sid){applyColor(sid);return true;}
     return false;
   }
 
-  // Poll: try immediately, then every 500ms, keep trying for 30s
-  tryApply();
+  // Method 2: intercept messages, skip the global broadcast, pick up panel-specific sessionId
+  window.addEventListener('message',function(e){
+    if(!e.data||_sid)return;
+    try{
+      var str=JSON.stringify(e.data);
+      // Skip session_states_update (broadcast to ALL panels, contains wrong global activeSessionId)
+      if(str.indexOf('session_states_update')!==-1)return;
+      // Also skip very short messages (no useful data)
+      if(str.length<50)return;
+      // Strip activeSessionId just in case
+      str=str.replace(/"activeSessionId":"[^"]*"/g,'""');
+      // Find sessionId in panel-specific messages
+      var m=str.match(/"sessionId":"([a-f0-9-]{36})"/);
+      if(m)applyColor(m[1]);
+    }catch(ex){}
+  });
+
+  // Poll for data-initial-session attribute
+  checkAttr();
+  var obs=new MutationObserver(function(){if(!_sid)checkAttr();});
+  obs.observe(document.getElementById('root')||document.body,{attributes:true,childList:true,subtree:true});
+  // Keep retrying for 60 seconds
   var count=0;
   var iv=setInterval(function(){
     count++;
-    if(tryApply()||count>60){clearInterval(iv);}
+    if(_sid||count>120){clearInterval(iv);return;}
+    checkAttr();
   },500);
 })();
 `;

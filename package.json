@@ -1,0 +1,27 @@
+{
+  "name": "claude-session-manager",
+  "displayName": "Claude Session Manager",
+  "description": "Card-based manager for Claude Code sessions in VS Code",
+  "version": "0.1.0",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [],
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "claude-session-manager.open",
+        "title": "Claude Sessions: Open Manager"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "claude-session-manager.open",
+        "key": "ctrl+shift+alt+c"
+      }
+    ]
+  }
+}

@@ -2,7 +2,7 @@
   "name": "claude-session-deck",
   "displayName": "Session Deck for Claude Code",
   "description": "Card-based session manager for Claude Code in VS Code — align, reorder, color-code your conversations",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "ethanHomePc",
   "repository": {
     "type": "git",

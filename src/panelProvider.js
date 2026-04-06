@@ -230,6 +230,13 @@ class SessionManagerPanel {
           confirmLabel,
         );
         if (answer === confirmLabel) {
+          // Close the tab first (if open), then delete
+          try {
+            await vscode.commands.executeCommand('claude-vscode.editor.open', msg.sessionId);
+            await new Promise(r => setTimeout(r, 300));
+            await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+            await new Promise(r => setTimeout(r, 300));
+          } catch {}
           this._store.removeCard(msg.sessionId);
           deleteSession(msg.sessionId);
           this._refresh();

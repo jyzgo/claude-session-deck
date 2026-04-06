@@ -31,8 +31,17 @@
     vscode.postMessage({ type: 'toggle-align', value: alignMode });
   });
 
+  const autoEvenCheckbox = document.getElementById('chk-auto-even');
+  autoEvenCheckbox.addEventListener('change', () => {
+    vscode.postMessage({ type: 'toggle-auto-even', value: autoEvenCheckbox.checked });
+  });
+
   document.getElementById('btn-even').addEventListener('click', () => {
     vscode.postMessage({ type: 'even-widths' });
+  });
+
+  document.getElementById('btn-recolor').addEventListener('click', () => {
+    vscode.postMessage({ type: 'recolor' });
   });
 
   document.getElementById('btn-patch').addEventListener('click', () => {
@@ -54,6 +63,9 @@
       case 'set-align-mode':
         alignMode = msg.value;
         alignCheckbox.checked = msg.value;
+        break;
+      case 'set-auto-even':
+        autoEvenCheckbox.checked = msg.value;
         break;
     }
   });
@@ -115,12 +127,12 @@
 
     const title = card.label || card.displayTitle || card.aiTitle || truncate(card.firstPrompt, 80) || card.slug || card.sessionId.substring(0, 8);
 
-    const snippetLines = [
-      card.firstPrompt ? '🙋 ' + truncate(card.firstPrompt, 60) : '',
-      card.lastPrompt ? '🙋 ' + truncate(card.lastPrompt, 60) : '',
-      card.lastResponse ? '🤖 ' + truncate(card.lastResponse, 60) : '',
+    const snippetParts = [
+      card.firstPrompt ? `<span class="snippet-user">🙋 ${escapeHtml(truncate(card.firstPrompt, 60))}</span>` : '',
+      card.lastPrompt ? `<span class="snippet-user">🙋 ${escapeHtml(truncate(card.lastPrompt, 60))}</span>` : '',
+      card.lastResponse ? `<span class="snippet-ai">🤖 ${escapeHtml(truncate(card.lastResponse, 60))}</span>` : '',
     ].filter(Boolean);
-    const snippet = snippetLines.map(l => escapeHtml(l)).join('<br>');
+    const snippet = snippetParts.join('<br>');
 
     // Column badge for open sessions
     const colBadge = card.column ? `<span class="slot-badge slot-active">C${card.column}</span>` : '';

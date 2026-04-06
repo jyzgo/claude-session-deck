@@ -3,12 +3,8 @@ const os = require('os');
 const path = require('path');
 
 const PALETTE = [
-  '#4a9eff', '#a78bfa', '#f472b6', '#fb923c',
-  '#facc15', '#4ade80', '#2dd4bf', '#64748b',
-  '#ef4444', '#22d3ee', '#818cf8', '#e879f9',
-  '#f97316', '#06b6d4', '#8b5cf6', '#ec4899',
-  '#84cc16', '#14b8a6', '#f59e0b', '#6366f1',
-  '#10b981', '#e11d48', '#0ea5e9', '#d946ef',
+  '#4a9eff', '#f472b6', '#4ade80', '#fb923c', '#a78bfa',
+  '#22d3ee', '#facc15', '#ef4444', '#14b8a6', '#e879f9',
 ];
 
 const extBase = path.join(os.homedir(), '.vscode', 'extensions');

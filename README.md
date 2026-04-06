@@ -32,7 +32,7 @@ A VS Code extension that provides a card-based session manager for [Claude Code]
 #### From .vsix file
 
 ```bash
-code --install-extension claude-session-deck-0.1.1.vsix
+code --install-extension claude-session-deck-0.2.0.vsix
 ```
 
 Or in VS Code: `Ctrl+Shift+P` → `Extensions: Install from VSIX...`
@@ -56,9 +56,11 @@ code --install-extension claude-session-deck-*.vsix
 
 | Button | Function |
 |--------|----------|
-| **Align** | Sync card order with editor group positions (polls every 3s) |
-| **Even** | Equalize all editor group widths |
-| **Color** | Patch Claude Code to show colored borders on session panels |
+| **Align** toggle | Sync card order with editor group positions (polls every 3s) |
+| **Tidy** toggle | Auto-equalize widths on open/close/delete |
+| ☰ | Equalize all editor group widths |
+| ↻ | Recolor: close all sessions and reopen (refreshes color borders) |
+| 🎨 | Patch Claude Code to show colored borders (restart required) |
 
 #### Card Controls
 
@@ -117,7 +119,7 @@ Click the **Color** button to patch the Claude Code extension. This adds colored
 #### 从 .vsix 文件安装
 
 ```bash
-code --install-extension claude-session-deck-0.1.1.vsix
+code --install-extension claude-session-deck-0.2.0.vsix
 ```
 
 或在 VS Code 中：`Ctrl+Shift+P` → `Extensions: Install from VSIX...`
@@ -141,9 +143,11 @@ code --install-extension claude-session-deck-*.vsix
 
 | 按钮 | 功能 |
 |------|------|
-| **对齐** | 卡片顺序跟随 editor group 位置同步（每 3 秒轮询） |
-| **等宽** | 均分所有 editor group 宽度 |
-| **颜色** | 给 Claude Code 面板注入彩色上下边框 |
+| **对齐** 开关 | 卡片顺序跟随 editor group 位置同步（每 3 秒轮询） |
+| **整理** 开关 | 打开/关闭/删除时自动均分宽度 |
+| ☰ | 均分所有 editor group 宽度 |
+| ↻ | 刷色：关闭所有对话并重新打开（刷新颜色边框） |
+| 🎨 | 配置 Claude Code 颜色边框（需重启） |
 
 #### 卡片操作
 

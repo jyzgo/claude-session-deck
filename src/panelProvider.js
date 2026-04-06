@@ -68,6 +68,7 @@ class SessionManagerPanel {
     this._context = context;
     this._store = new CardStore(context.globalState);
     this._alignMode = context.globalState.get('claude-session-manager.alignMode', false);
+    this._autoEven = context.globalState.get('claude-session-manager.autoEven', false);
     this._syncTimer = null;
 
     this._panel.webview.html = this._getHtml();
@@ -186,6 +187,7 @@ class SessionManagerPanel {
     try {
       this._panel.webview.postMessage({ type: 'update-cards', cards: mergedCards });
       this._panel.webview.postMessage({ type: 'set-align-mode', value: this._alignMode });
+      this._panel.webview.postMessage({ type: 'set-auto-even', value: this._autoEven });
     } catch {}
   }
 
@@ -203,7 +205,7 @@ class SessionManagerPanel {
         }
 
         await vscode.commands.executeCommand('claude-vscode.editor.open', msg.sessionId, undefined, col);
-        await vscode.commands.executeCommand('workbench.action.evenEditorWidths');
+        if (this._autoEven) await vscode.commands.executeCommand('workbench.action.evenEditorWidths');
         // Refresh immediately + after delay (tab may not be ready yet)
         this._refresh();
         setTimeout(() => this._refresh(), 800);
@@ -215,6 +217,7 @@ class SessionManagerPanel {
         await new Promise(r => setTimeout(r, 300));
         await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
         await new Promise(r => setTimeout(r, 200));
+        if (this._autoEven) await vscode.commands.executeCommand('workbench.action.evenEditorWidths');
         this._refresh();
         break;
       }
@@ -239,6 +242,7 @@ class SessionManagerPanel {
           } catch {}
           this._store.removeCard(msg.sessionId);
           deleteSession(msg.sessionId);
+          if (this._autoEven) await vscode.commands.executeCommand('workbench.action.evenEditorWidths');
           this._refresh();
         }
         break;
@@ -256,6 +260,68 @@ class SessionManagerPanel {
 
       case 'even-widths':
         await vscode.commands.executeCommand('workbench.action.evenEditorWidths');
+        break;
+
+      case 'recolor': {
+        // Collect which sessions are currently open (in order)
+        const claudeTabs = getClaudeTabs();
+        const allSess = getAllSessions();
+        const openSessionIds = [];
+        for (const ct of claudeTabs) {
+          for (const sess of allSess) {
+            const candidates = [sess.customTitle, sess.aiTitle, sess.lastPrompt, sess.firstPrompt].filter(Boolean);
+            let matched = false;
+            for (const t of candidates) {
+              const tShort = t.substring(0, 12);
+              if (ct.label && tShort.length >= 5 && (ct.label.includes(tShort) || t.includes(ct.label.substring(0, 12)))) {
+                openSessionIds.push(sess.sessionId);
+                matched = true;
+                break;
+              }
+            }
+            if (matched) break;
+          }
+        }
+
+        // Close all Claude tabs one by one
+        let closedCount = 0;
+        while (closedCount < 30) {
+          let found = null;
+          for (const group of vscode.window.tabGroups.all) {
+            if (group.viewColumn === vscode.ViewColumn.One) continue;
+            for (const tab of group.tabs) {
+              if (tab.input && String(tab.input.viewType || '').includes('claudeVSCodePanel')) {
+                found = tab;
+                break;
+              }
+            }
+            if (found) break;
+          }
+          if (!found) break;
+          try { await vscode.window.tabGroups.close(found); } catch { break; }
+          closedCount++;
+        }
+        await new Promise(r => setTimeout(r, 300));
+
+        // Reopen in order
+        for (let i = 0; i < openSessionIds.length; i++) {
+          const col = i + 2;
+          if (col > 8) break;
+          await vscode.commands.executeCommand('claude-vscode.editor.open', openSessionIds[i], undefined, col);
+          await new Promise(r => setTimeout(r, 250));
+        }
+        if (this._autoEven) await vscode.commands.executeCommand('workbench.action.evenEditorWidths');
+        this._panel.reveal(vscode.ViewColumn.One);
+        this._refresh();
+        break;
+      }
+
+      case 'toggle-auto-even':
+        this._autoEven = msg.value;
+        this._context.globalState.update('claude-session-manager.autoEven', this._autoEven);
+        if (this._autoEven) {
+          await vscode.commands.executeCommand('workbench.action.evenEditorWidths');
+        }
         break;
 
       case 'toggle-align':
@@ -301,12 +367,18 @@ class SessionManagerPanel {
   <div class="toolbar">
     <h2 class="toolbar-title">Claude Sessions</h2>
     <div class="toolbar-actions">
-      <label class="align-toggle" title="${isZh ? '对齐模式：卡片顺序跟随 editor group' : 'Align: sync card order with editor groups'}">
-        <input id="chk-align" type="checkbox"> ${isZh ? '对齐' : 'Align'}
-      </label>
-      <button id="btn-even" class="btn">${isZh ? '等宽' : 'Even'}</button>
-      <button id="btn-patch" class="btn">${isZh ? '颜色' : 'Color'}</button>
+      <button id="btn-even" class="btn-icon toolbar-icon" title="${isZh ? '等宽' : 'Even widths'}">&#9776;</button>
+      <button id="btn-recolor" class="btn-icon toolbar-icon" title="${isZh ? '刷色：关闭所有对话并重新打开' : 'Recolor: close all and reopen'}">&#8635;</button>
+      <button id="btn-patch" class="btn-icon toolbar-icon" title="${isZh ? '配置颜色边框（需重启）' : 'Configure color borders (restart required)'}">&#127912;</button>
     </div>
+  </div>
+  <div class="toolbar-toggles">
+    <label class="align-toggle" title="${isZh ? '对齐：卡片顺序跟随 editor group' : 'Align: sync card order with editor groups'}">
+      <input id="chk-align" type="checkbox"> ${isZh ? '对齐' : 'Align'}
+    </label>
+    <label class="align-toggle" title="${isZh ? '自动整理：打开/关闭/删除时自动均分宽度' : 'Auto-tidy: even widths on open/close/delete'}">
+      <input id="chk-auto-even" type="checkbox"> ${isZh ? '整理' : 'Tidy'}
+    </label>
   </div>
 
   <div id="cards-container" class="cards-container"></div>

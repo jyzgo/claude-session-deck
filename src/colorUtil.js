@@ -1,11 +1,15 @@
-// 24 distinct colors for session identification
+// 10 high-contrast colors for session identification
 const PALETTE = [
-  '#4a9eff', '#a78bfa', '#f472b6', '#fb923c',
-  '#facc15', '#4ade80', '#2dd4bf', '#64748b',
-  '#ef4444', '#22d3ee', '#818cf8', '#e879f9',
-  '#f97316', '#06b6d4', '#8b5cf6', '#ec4899',
-  '#84cc16', '#14b8a6', '#f59e0b', '#6366f1',
-  '#10b981', '#e11d48', '#0ea5e9', '#d946ef',
+  '#4a9eff', // blue
+  '#f472b6', // pink
+  '#4ade80', // green
+  '#fb923c', // orange
+  '#a78bfa', // purple
+  '#22d3ee', // cyan
+  '#facc15', // yellow
+  '#ef4444', // red
+  '#14b8a6', // teal
+  '#e879f9', // magenta
 ];
 
 // Simple hash: sum char codes, XOR with shifted values

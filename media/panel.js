@@ -4,19 +4,26 @@
 
   let cards = [];
   let draggedId = null;
+  let alignMode = false;
 
   // ── Elements ───────────────────────────────
   const cardsContainer = document.getElementById('cards-container');
   const emptyState = document.getElementById('empty-state');
+  const maxGroupsInput = document.getElementById('input-max-groups');
+  const alignCheckbox = document.getElementById('chk-align');
 
   // ── Toolbar buttons ────────────────────────
   document.getElementById('btn-refresh').addEventListener('click', () => {
     vscode.postMessage({ type: 'refresh' });
   });
 
-  const maxGroupsInput = document.getElementById('input-max-groups');
   maxGroupsInput.addEventListener('change', () => {
-    vscode.postMessage({ type: 'set-max-groups', value: parseInt(maxGroupsInput.value) || 4 });
+    vscode.postMessage({ type: 'set-max-groups', value: parseInt(maxGroupsInput.value) || 5 });
+  });
+
+  alignCheckbox.addEventListener('change', () => {
+    alignMode = alignCheckbox.checked;
+    vscode.postMessage({ type: 'toggle-align', value: alignMode });
   });
 
   document.getElementById('btn-patch').addEventListener('click', () => {
@@ -37,6 +44,10 @@
         break;
       case 'set-max-groups':
         maxGroupsInput.value = msg.value;
+        break;
+      case 'set-align-mode':
+        alignMode = msg.value;
+        alignCheckbox.checked = msg.value;
         break;
     }
   });
@@ -79,13 +90,17 @@
     emptyState.style.display = 'none';
     cardsContainer.innerHTML = '';
 
-    for (const card of cards) {
-      const el = createCardElement(card);
+    const maxN = parseInt(maxGroupsInput.value) || 5;
+
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      const slotNum = i < maxN ? (i + 1) : null; // 1-based slot number if in top N
+      const el = createCardElement(card, slotNum);
       cardsContainer.appendChild(el);
     }
   }
 
-  function createCardElement(card) {
+  function createCardElement(card, slotNum) {
     const div = document.createElement('div');
     div.className = 'card';
     div.dataset.sessionId = card.sessionId;
@@ -104,11 +119,16 @@
     ].filter(Boolean);
     const snippet = snippetLines.map(l => escapeHtml(l)).join('<br>');
 
+    // Slot badge: show actual column position if open, or expected slot number
+    const colLabel = card.column ? `C${card.column}` : (slotNum ? slotNum : '');
+    const slotBadge = colLabel ? `<span class="slot-badge${card.column ? ' slot-active' : ''}">${colLabel}</span>` : '';
+
     div.innerHTML = `
       <div class="card-body">
         <div class="card-left-icons">
+          ${slotBadge}
           <button class="btn-icon btn-open" title="打开">&#9654;</button>
-          <button class="btn-icon btn-pin" title="${card.pinned ? '取消置顶' : '置顶'}">${card.pinned ? '&#9733;' : '&#9734;'}</button>
+          <button class="btn-icon btn-top" title="置顶（移到第一位）">&#8679;</button>
           <button class="btn-icon btn-close" title="关闭窗口">&#10005;</button>
         </div>
         <div class="card-content">
@@ -145,8 +165,8 @@
       vscode.postMessage({ type: 'close-session-tab', sessionId: card.sessionId });
     });
 
-    div.querySelector('.btn-pin').addEventListener('click', () => {
-      vscode.postMessage({ type: 'toggle-pin', sessionId: card.sessionId, pinned: !card.pinned });
+    div.querySelector('.btn-top').addEventListener('click', () => {
+      vscode.postMessage({ type: 'move-to-top', sessionId: card.sessionId });
     });
 
     div.querySelector('.card-title-text').addEventListener('dblclick', (e) => {
@@ -154,7 +174,6 @@
       startTitleEdit(e.target, card.sessionId, card.label || '');
     });
 
-    // ── Double-click card body to open session ──
     div.addEventListener('dblclick', (e) => {
       if (e.target.closest('.btn-icon, .btn, button, input, .card-title-text')) return;
       vscode.postMessage({ type: 'open-session', sessionId: card.sessionId });
@@ -177,14 +196,10 @@
     div.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      if (card.sessionId !== draggedId) {
-        div.classList.add('drag-over');
-      }
+      if (card.sessionId !== draggedId) div.classList.add('drag-over');
     });
 
-    div.addEventListener('dragleave', () => {
-      div.classList.remove('drag-over');
-    });
+    div.addEventListener('dragleave', () => { div.classList.remove('drag-over'); });
 
     div.addEventListener('drop', (e) => {
       e.preventDefault();

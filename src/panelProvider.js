@@ -17,6 +17,24 @@ function patchClaudeExtension() {
   }
 }
 
+// Helper: find a Claude Code tab matching a session
+function findClaudeTab(session) {
+  if (!session) return null;
+  const candidates = [session.customTitle, session.aiTitle, session.firstPrompt?.substring(0, 40)].filter(Boolean);
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      if (!tab.input || !String(tab.input.viewType || '').includes('claudeVSCodePanel')) continue;
+      for (const candidate of candidates) {
+        const short = candidate.substring(0, 15);
+        if (tab.label && (tab.label.includes(short) || short.includes(tab.label.substring(0, 15)))) {
+          return { tab, group };
+        }
+      }
+    }
+  }
+  return null;
+}
+
 class SessionManagerPanel {
   static currentPanel = undefined;
 
@@ -44,7 +62,6 @@ class SessionManagerPanel {
 
     SessionManagerPanel.currentPanel = new SessionManagerPanel(panel, context);
 
-    // Lock the editor group so it doesn't resize when other groups open/close
     setTimeout(() => {
       vscode.commands.executeCommand('workbench.action.lockEditorGroup');
     }, 500);
@@ -54,8 +71,8 @@ class SessionManagerPanel {
     this._panel = panel;
     this._context = context;
     this._store = new CardStore(context.globalState);
-
     this._maxGroups = context.globalState.get('claude-session-manager.maxGroups', 5);
+    this._alignMode = context.globalState.get('claude-session-manager.alignMode', false);
 
     this._panel.webview.html = this._getHtml();
     this._panel.onDidDispose(() => {
@@ -64,9 +81,7 @@ class SessionManagerPanel {
     }, null, context.subscriptions);
 
     this._panel.onDidChangeViewState(() => {
-      if (this._panel.visible) {
-        this._refresh();
-      }
+      if (this._panel.visible) this._refresh();
     }, null, context.subscriptions);
 
     this._panel.webview.onDidReceiveMessage(
@@ -90,12 +105,14 @@ class SessionManagerPanel {
 
     const cards = this._store.getCards();
 
-    // Detect which sessions have open Claude Code tabs
+    // Detect open Claude Code tabs and their positions
     const openTitles = new Set();
+    const titleToColumn = new Map(); // tab label → viewColumn
     for (const group of vscode.window.tabGroups.all) {
       for (const tab of group.tabs) {
         if (tab.input && String(tab.input.viewType || '').includes('claudeVSCodePanel')) {
           openTitles.add(tab.label);
+          titleToColumn.set(tab.label, group.viewColumn);
         }
       }
     }
@@ -104,27 +121,70 @@ class SessionManagerPanel {
     for (const card of cards) {
       const session = allSessions.find(s => s.sessionId === card.sessionId);
       if (session) {
-        const titles = [session.customTitle, session.aiTitle, session.firstPrompt.substring(0, 30)].filter(Boolean);
-        const isOpen = titles.some(t =>
-          openTitles.has(t) || [...openTitles].some(ot => ot.includes(t.substring(0, 15)) || t.includes(ot.substring(0, 15)))
-        );
-        mergedCards.push({
-          ...session,
-          ...card,
-          color: colorForSession(card.sessionId),
-          isOpen,
-        });
+        const titles = [session.customTitle, session.aiTitle, session.firstPrompt?.substring(0, 30)].filter(Boolean);
+        let isOpen = false;
+        let column = 0;
+        for (const t of titles) {
+          for (const [label, col] of titleToColumn) {
+            if (label.includes(t.substring(0, 15)) || t.includes(label.substring(0, 15))) {
+              isOpen = true;
+              column = col;
+              break;
+            }
+          }
+          if (isOpen) break;
+        }
+        mergedCards.push({ ...session, ...card, color: colorForSession(card.sessionId), isOpen, column });
       }
     }
 
-    mergedCards.sort((a, b) => {
-      if (a.pinned && !b.pinned) return -1;
-      if (!a.pinned && b.pinned) return 1;
-      return a.order - b.order;
-    });
+    // Sort by order (no more pinned-first, order is the source of truth)
+    mergedCards.sort((a, b) => a.order - b.order);
 
     this._panel.webview.postMessage({ type: 'update-cards', cards: mergedCards });
     this._panel.webview.postMessage({ type: 'set-max-groups', value: this._maxGroups });
+    this._panel.webview.postMessage({ type: 'set-align-mode', value: this._alignMode });
+  }
+
+  // Close all Claude Code tabs, then open top N cards in order
+  async _alignSessions(force) {
+    if (!this._alignMode && !force) return;
+
+    const cards = this._store.getCards();
+    cards.sort((a, b) => a.order - b.order);
+    const topN = cards.slice(0, this._maxGroups);
+
+    // Step 1: Close ALL Claude Code tabs one by one (re-query after each)
+    let closed = 0;
+    while (closed < 30) {
+      let found = null;
+      for (const group of vscode.window.tabGroups.all) {
+        if (group.viewColumn === vscode.ViewColumn.One) continue;
+        for (const tab of group.tabs) {
+          if (tab.input && String(tab.input.viewType || '').includes('claudeVSCodePanel')) {
+            found = tab;
+            break;
+          }
+        }
+        if (found) break;
+      }
+      if (!found) break;
+      try { await vscode.window.tabGroups.close(found); } catch { break; }
+      closed++;
+    }
+    await new Promise(r => setTimeout(r, 200));
+
+    // Step 2: Open each session at its target column
+    for (let i = 0; i < topN.length; i++) {
+      const col = i + 2;
+      if (col > 8) break;
+      await vscode.commands.executeCommand('claude-vscode.editor.open', topN[i].sessionId, undefined, col);
+      await new Promise(r => setTimeout(r, 250));
+    }
+
+    await vscode.commands.executeCommand('workbench.action.evenEditorWidths');
+    this._panel.reveal(vscode.ViewColumn.One);
+    this._refresh();
   }
 
   async _handleMessage(msg) {
@@ -140,9 +200,7 @@ class SessionManagerPanel {
           }
         }
 
-        // If at limit, close the oldest (first found) Claude tab to make room
         if (claudeTabs.length >= this._maxGroups) {
-          // Close the last one (least recently used is hard to determine, close last in list)
           const toClose = claudeTabs[claudeTabs.length - 1];
           await vscode.window.tabGroups.close(toClose.tab);
         }
@@ -155,15 +213,15 @@ class SessionManagerPanel {
         for (let c = vscode.ViewColumn.One; c <= vscode.ViewColumn.Nine; c++) {
           if (!usedColumns.has(c)) { col = c; break; }
         }
-        const color = colorForSession(msg.sessionId);
+
         const allSessions3 = getAllSessions();
         const session3 = allSessions3.find(s => s.sessionId === msg.sessionId);
-        const title = session3 ? (session3.displayTitle || session3.firstPrompt.substring(0, 30)) : msg.sessionId.substring(0, 8);
+        const title = session3 ? (session3.displayTitle || session3.firstPrompt?.substring(0, 30)) : msg.sessionId.substring(0, 8);
+        const color = colorForSession(msg.sessionId);
 
         await vscode.commands.executeCommand('claude-vscode.editor.open', msg.sessionId, undefined, col);
         await vscode.commands.executeCommand('workbench.action.evenEditorWidths');
 
-        // Flash a colored status bar indicator for 3 seconds
         const indicator = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 999);
         indicator.text = `$(arrow-right) ${title}`;
         indicator.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
@@ -173,34 +231,26 @@ class SessionManagerPanel {
         break;
       }
 
-      case 'close-session-tab': {
-        const allSessions2 = getAllSessions();
-        const sess = allSessions2.find(s => s.sessionId === msg.sessionId);
-        // Try all possible title variants
-        const titleCandidates = [];
-        if (sess) {
-          if (sess.customTitle) titleCandidates.push(sess.customTitle);
-          if (sess.aiTitle) titleCandidates.push(sess.aiTitle);
-          if (sess.firstPrompt) titleCandidates.push(sess.firstPrompt.substring(0, 40));
+      case 'move-to-top': {
+        this._store.moveToTop(msg.sessionId);
+        this._refresh();
+        if (this._alignMode) {
+          await this._alignSessions();
         }
+        break;
+      }
 
-        let closed = false;
-        for (const group of vscode.window.tabGroups.all) {
-          if (closed) break;
-          for (const tab of group.tabs) {
-            if (!tab.input || !String(tab.input.viewType || '').includes('claudeVSCodePanel')) continue;
-            for (const candidate of titleCandidates) {
-              const short = candidate.substring(0, 15);
-              if (tab.label && (tab.label.includes(short) || short.includes(tab.label.substring(0, 15)))) {
-                await vscode.window.tabGroups.close(tab);
-                closed = true;
-                break;
-              }
-            }
-            if (closed) break;
-          }
-        }
-        if (!closed) vscode.window.showInformationMessage('没有找到对应的 Claude Code 窗口');
+      case 'close-session-tab': {
+        // Use Claude Code's own command to find and focus the tab, then close it
+        await vscode.commands.executeCommand('claude-vscode.editor.open', msg.sessionId);
+        await new Promise(r => setTimeout(r, 300));
+        await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+
+        // Move this card after the top N slots, so cards below shift up
+        this._store.moveToPosition(msg.sessionId, this._maxGroups);
+        await new Promise(r => setTimeout(r, 200));
+
+        if (this._alignMode) await this._alignSessions(true);
         this._refresh();
         break;
       }
@@ -219,11 +269,6 @@ class SessionManagerPanel {
         break;
       }
 
-      case 'toggle-pin':
-        this._store.updateCard(msg.sessionId, { pinned: msg.pinned });
-        this._refresh();
-        break;
-
       case 'update-label':
         this._store.updateCard(msg.sessionId, { label: msg.label });
         this._refresh();
@@ -232,15 +277,26 @@ class SessionManagerPanel {
       case 'reorder-cards':
         this._store.reorderCards(msg.orderedIds);
         this._refresh();
+        if (this._alignMode) {
+          await this._alignSessions();
+        }
         break;
 
       case 'set-max-groups':
         this._maxGroups = Math.max(1, Math.min(9, msg.value || 5));
         this._context.globalState.update('claude-session-manager.maxGroups', this._maxGroups);
+        if (this._alignMode) await this._alignSessions();
+        break;
+
+      case 'toggle-align':
+        this._alignMode = msg.value;
+        this._context.globalState.update('claude-session-manager.alignMode', this._alignMode);
+        if (this._alignMode) await this._alignSessions();
+        this._refresh();
         break;
 
       case 'refresh':
-        this._refresh();
+        await this._alignSessions(true);
         break;
 
       case 'patch-claude': {
@@ -277,8 +333,11 @@ class SessionManagerPanel {
   <div class="toolbar">
     <h2 class="toolbar-title">Claude Sessions</h2>
     <div class="toolbar-actions">
-      <label class="max-groups-label">窗口上限 <input id="input-max-groups" type="number" min="1" max="9" value="5" class="max-groups-input"></label>
-      <button id="btn-patch" class="btn">配置颜色</button>
+      <label class="align-toggle" title="对齐模式：按卡片顺序排列窗口">
+        <input id="chk-align" type="checkbox"> 对齐
+      </label>
+      <label class="max-groups-label">上限 <input id="input-max-groups" type="number" min="1" max="9" value="5" class="max-groups-input"></label>
+      <button id="btn-patch" class="btn">颜色</button>
       <button id="btn-refresh" class="btn">刷新</button>
     </div>
   </div>

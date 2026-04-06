@@ -63,6 +63,28 @@ class CardStore {
     }
   }
 
+  moveToPosition(sessionId, position) {
+    const data = this._load();
+    const idx = data.cards.findIndex(c => c.sessionId === sessionId);
+    if (idx === -1) return;
+    const [card] = data.cards.splice(idx, 1);
+    const insertAt = Math.min(position, data.cards.length);
+    data.cards.splice(insertAt, 0, card);
+    this._reindex(data);
+    this._save(data);
+  }
+
+  moveToTop(sessionId) {
+    const data = this._load();
+    const idx = data.cards.findIndex(c => c.sessionId === sessionId);
+    if (idx > 0) {
+      const [card] = data.cards.splice(idx, 1);
+      data.cards.unshift(card);
+      this._reindex(data);
+      this._save(data);
+    }
+  }
+
   reorderCards(orderedIds) {
     const data = this._load();
     const map = new Map(data.cards.map(c => [c.sessionId, c]));

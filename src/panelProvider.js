@@ -93,12 +93,12 @@ class SessionManagerPanel {
 
   _startSyncIfNeeded() {
     if (this._syncTimer) clearInterval(this._syncTimer);
-    if (this._alignMode) {
-      // Always sync in background, even when panel is not visible
-      this._syncTimer = setInterval(() => {
-        this._syncFromEditorGroups();
-      }, 3000);
-    }
+    // Always refresh card states (open/column) every 3s
+    // Align mode additionally reorders cards to match editor groups
+    this._syncTimer = setInterval(() => {
+      if (this._alignMode) this._syncFromEditorGroups();
+      this._refresh();
+    }, 3000);
   }
 
   // Sync card order FROM the actual editor group layout
@@ -204,7 +204,9 @@ class SessionManagerPanel {
 
         await vscode.commands.executeCommand('claude-vscode.editor.open', msg.sessionId, undefined, col);
         await vscode.commands.executeCommand('workbench.action.evenEditorWidths');
+        // Refresh immediately + after delay (tab may not be ready yet)
         this._refresh();
+        setTimeout(() => this._refresh(), 800);
         break;
       }
 

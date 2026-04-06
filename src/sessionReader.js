@@ -29,10 +29,11 @@ function findProjectDir() {
 
   if (fs.existsSync(exact)) return { dir: exact, wsPath };
 
-  // Case-insensitive fallback
+  // Fuzzy fallback: case-insensitive + normalize _ to -
   try {
+    const normalize = s => s.toLowerCase().replace(/_/g, '-').replace(/-+/g, '-');
     const entries = fs.readdirSync(PROJECTS_DIR);
-    const match = entries.find(e => e.toLowerCase() === encoded.toLowerCase());
+    const match = entries.find(e => normalize(e) === normalize(encoded));
     if (match) return { dir: path.join(PROJECTS_DIR, match), wsPath };
   } catch {}
 

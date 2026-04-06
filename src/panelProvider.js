@@ -273,6 +273,7 @@ class SessionManagerPanel {
     const cssUri = webview.asWebviewUri(vscode.Uri.file(path.join(mediaPath, 'panel.css')));
     const jsUri = webview.asWebviewUri(vscode.Uri.file(path.join(mediaPath, 'panel.js')));
     const nonce = getNonce();
+    const isZh = vscode.env.language.startsWith('zh');
 
     return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -287,20 +288,21 @@ class SessionManagerPanel {
   <div class="toolbar">
     <h2 class="toolbar-title">Claude Sessions</h2>
     <div class="toolbar-actions">
-      <label class="align-toggle" title="对齐模式：卡片顺序跟随 editor group">
-        <input id="chk-align" type="checkbox"> 对齐
+      <label class="align-toggle" title="${isZh ? '对齐模式：卡片顺序跟随 editor group' : 'Align: sync card order with editor groups'}">
+        <input id="chk-align" type="checkbox"> ${isZh ? '对齐' : 'Align'}
       </label>
-      <button id="btn-even" class="btn">等宽</button>
-      <button id="btn-patch" class="btn">颜色</button>
+      <button id="btn-even" class="btn">${isZh ? '等宽' : 'Even'}</button>
+      <button id="btn-patch" class="btn">${isZh ? '颜色' : 'Color'}</button>
     </div>
   </div>
 
   <div id="cards-container" class="cards-container"></div>
 
   <div id="empty-state" class="empty-state" style="display:none;">
-    <p>当前项目还没有 Claude 会话</p>
+    <p>${isZh ? '当前项目还没有 Claude 会话' : 'No Claude sessions in this project'}</p>
   </div>
 
+  <script nonce="${nonce}">window.__LANG = "${vscode.env.language}";</script>
   <script nonce="${nonce}" src="${jsUri}"></script>
 </body>
 </html>`;

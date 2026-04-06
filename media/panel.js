@@ -2,6 +2,20 @@
   // @ts-ignore
   const vscode = acquireVsCodeApi();
 
+  const isZh = (window.__LANG || '').startsWith('zh');
+  const L = {
+    align: isZh ? '对齐' : 'Align',
+    color: isZh ? '颜色' : 'Color',
+    even: isZh ? '等宽' : 'Even',
+    open: isZh ? '打开' : 'Open',
+    close: isZh ? '关闭窗口' : 'Close tab',
+    del: isZh ? '删除会话' : 'Delete session',
+    empty: isZh ? '当前项目还没有 Claude 会话' : 'No Claude sessions in this project',
+    active: isZh ? '活跃' : 'Active',
+    idle: isZh ? '空闲' : 'Idle',
+    rounds: isZh ? '轮' : ' rounds',
+  };
+
   let cards = [];
   let draggedId = null;
   let alignMode = false;
@@ -125,11 +139,11 @@
           </div>
           ${snippet ? `<div class="card-snippet">${snippet}</div>` : ''}
           <div class="card-meta">
-            <span class="card-meta-item">${card.userTurns}轮</span>
+            <span class="card-meta-item">${card.userTurns}${L.rounds}</span>
             <span class="card-meta-item">${formatSize(card.fileSize)}</span>
             ${card.gitBranch ? `<span class="card-meta-item">${escapeHtml(card.gitBranch)}</span>` : ''}
             <span class="card-meta-item ${card.isActive ? 'status-active' : 'status-inactive'}">
-              ${card.isActive ? '● 活跃' : '○ 空闲'}
+              ${card.isActive ? '● ' + L.active : '○ ' + L.idle}
             </span>
             <span class="card-meta-item">${formatTime(card.lastModified)}</span>
           </div>

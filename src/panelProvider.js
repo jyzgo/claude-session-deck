@@ -220,12 +220,16 @@ class SessionManagerPanel {
       }
 
       case 'delete-session': {
+        const isZhMsg = vscode.env.language.startsWith('zh');
+        const confirmLabel = isZhMsg ? '删除' : 'Delete';
         const answer = await vscode.window.showWarningMessage(
-          `确定要删除这个 Claude 会话吗？\n这将同时删除对话记录，无法恢复。`,
+          isZhMsg
+            ? '确定要删除这个 Claude 会话吗？\n这将同时删除对话记录，无法恢复。'
+            : 'Delete this Claude session?\nThis will permanently remove the conversation history.',
           { modal: true },
-          '删除',
+          confirmLabel,
         );
-        if (answer === '删除') {
+        if (answer === confirmLabel) {
           this._store.removeCard(msg.sessionId);
           deleteSession(msg.sessionId);
           this._refresh();

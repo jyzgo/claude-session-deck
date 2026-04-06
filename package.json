@@ -1,9 +1,13 @@
 {
-  "name": "claude-session-manager",
-  "displayName": "Claude Session Manager",
-  "description": "Card-based manager for Claude Code sessions in VS Code",
+  "name": "claude-session-deck",
+  "displayName": "Session Deck for Claude Code",
+  "description": "Card-based session manager for Claude Code in VS Code — align, reorder, color-code your conversations",
   "version": "0.1.0",
-  "publisher": "local",
+  "publisher": "ethanHomePc",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ethanHomePc/claude-session-deck"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -14,7 +18,7 @@
     "commands": [
       {
         "command": "claude-session-manager.open",
-        "title": "Claude Sessions: Open Manager"
+        "title": "Session Deck: Open Claude Session Manager"
       }
     ],
     "keybindings": [

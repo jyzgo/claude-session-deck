@@ -9,21 +9,16 @@
   // ── Elements ───────────────────────────────
   const cardsContainer = document.getElementById('cards-container');
   const emptyState = document.getElementById('empty-state');
-  const maxGroupsInput = document.getElementById('input-max-groups');
   const alignCheckbox = document.getElementById('chk-align');
 
   // ── Toolbar buttons ────────────────────────
-  document.getElementById('btn-refresh').addEventListener('click', () => {
-    vscode.postMessage({ type: 'refresh' });
-  });
-
-  maxGroupsInput.addEventListener('change', () => {
-    vscode.postMessage({ type: 'set-max-groups', value: parseInt(maxGroupsInput.value) || 5 });
-  });
-
   alignCheckbox.addEventListener('change', () => {
     alignMode = alignCheckbox.checked;
     vscode.postMessage({ type: 'toggle-align', value: alignMode });
+  });
+
+  document.getElementById('btn-even').addEventListener('click', () => {
+    vscode.postMessage({ type: 'even-widths' });
   });
 
   document.getElementById('btn-patch').addEventListener('click', () => {
@@ -41,9 +36,6 @@
       case 'update-cards':
         cards = msg.cards;
         renderCards();
-        break;
-      case 'set-max-groups':
-        maxGroupsInput.value = msg.value;
         break;
       case 'set-align-mode':
         alignMode = msg.value;
@@ -86,27 +78,24 @@
       return;
     }
 
-    cardsContainer.style.display = 'grid';
+    cardsContainer.style.display = 'flex';
     emptyState.style.display = 'none';
     cardsContainer.innerHTML = '';
 
-    const maxN = parseInt(maxGroupsInput.value) || 5;
-
-    for (let i = 0; i < cards.length; i++) {
-      const card = cards[i];
-      const slotNum = i < maxN ? (i + 1) : null; // 1-based slot number if in top N
-      const el = createCardElement(card, slotNum);
+    for (const card of cards) {
+      const el = createCardElement(card);
       cardsContainer.appendChild(el);
     }
   }
 
-  function createCardElement(card, slotNum) {
+  function createCardElement(card) {
     const div = document.createElement('div');
-    div.className = 'card';
+    div.className = 'card' + (card.isOpen ? '' : ' card-inactive');
     div.dataset.sessionId = card.sessionId;
     div.draggable = true;
 
-    if (card.color) {
+    // Only show color border for open/active sessions
+    if (card.color && card.isOpen) {
       div.style.setProperty('--card-color', card.color);
     }
 
@@ -119,16 +108,14 @@
     ].filter(Boolean);
     const snippet = snippetLines.map(l => escapeHtml(l)).join('<br>');
 
-    // Slot badge: show actual column position if open, or expected slot number
-    const colLabel = card.column ? `C${card.column}` : (slotNum ? slotNum : '');
-    const slotBadge = colLabel ? `<span class="slot-badge${card.column ? ' slot-active' : ''}">${colLabel}</span>` : '';
+    // Column badge for open sessions
+    const colBadge = card.column ? `<span class="slot-badge slot-active">C${card.column}</span>` : '';
 
     div.innerHTML = `
       <div class="card-body">
         <div class="card-left-icons">
-          ${slotBadge}
+          ${colBadge}
           <button class="btn-icon btn-open" title="打开">&#9654;</button>
-          <button class="btn-icon btn-top" title="置顶（移到第一位）">&#8679;</button>
           <button class="btn-icon btn-close" title="关闭窗口">&#10005;</button>
         </div>
         <div class="card-content">
@@ -165,18 +152,17 @@
       vscode.postMessage({ type: 'close-session-tab', sessionId: card.sessionId });
     });
 
-    div.querySelector('.btn-top').addEventListener('click', () => {
-      vscode.postMessage({ type: 'move-to-top', sessionId: card.sessionId });
-    });
-
     div.querySelector('.card-title-text').addEventListener('dblclick', (e) => {
       e.stopPropagation();
       startTitleEdit(e.target, card.sessionId, card.label || '');
     });
 
+    // Double-click inactive card → open at rightmost position
     div.addEventListener('dblclick', (e) => {
       if (e.target.closest('.btn-icon, .btn, button, input, .card-title-text')) return;
-      vscode.postMessage({ type: 'open-session', sessionId: card.sessionId });
+      if (!card.isOpen) {
+        vscode.postMessage({ type: 'open-session', sessionId: card.sessionId });
+      }
     });
 
     // ── Drag & drop ──

@@ -70,13 +70,54 @@ function getActiveSessionIds() {
 }
 
 /**
+ * Read first N and last N lines of a file efficiently.
+ * For small files reads everything; for large files only reads head + tail.
+ */
+function readHeadTail(filePath, stats, headLines, tailLines) {
+  const SIZE_THRESHOLD = 200 * 1024; // 200KB
+  if (stats.size < SIZE_THRESHOLD) {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.split('\n').filter(l => l.trim());
+    return { lines, totalLines: lines.length };
+  }
+
+  // Large file: read head chunk
+  const CHUNK = 64 * 1024; // 64KB per chunk
+  const fd = fs.openSync(filePath, 'r');
+  const headBuf = Buffer.alloc(CHUNK);
+  fs.readSync(fd, headBuf, 0, CHUNK, 0);
+  const headStr = headBuf.toString('utf-8');
+  const headArr = headStr.split('\n').filter(l => l.trim()).slice(0, headLines);
+
+  // Read tail chunk
+  const tailStart = Math.max(0, stats.size - CHUNK);
+  const tailBuf = Buffer.alloc(Math.min(CHUNK, stats.size));
+  fs.readSync(fd, tailBuf, 0, tailBuf.length, tailStart);
+  fs.closeSync(fd);
+  const tailStr = tailBuf.toString('utf-8');
+  const tailArr = tailStr.split('\n').filter(l => l.trim()).slice(-tailLines);
+
+  // Estimate total lines from file size and average line length
+  const sampleLen = headArr.slice(0, 5).reduce((s, l) => s + l.length + 1, 0) / Math.min(5, headArr.length);
+  const estTotal = Math.round(stats.size / (sampleLen || 200));
+
+  // Dedupe (tail might overlap with head for small-ish files)
+  const seen = new Set(headArr);
+  const combined = [...headArr];
+  for (const line of tailArr) {
+    if (!seen.has(line)) combined.push(line);
+  }
+
+  return { lines: combined, totalLines: estTotal };
+}
+
+/**
  * Parse a session JSONL file and extract metadata.
- * Reads first N and last N lines for efficiency on large files.
+ * Only reads head + tail of large files for speed.
  */
 function parseSessionFile(filePath, sessionId, activeIds) {
   const stats = fs.statSync(filePath);
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n').filter(l => l.trim());
+  const { lines, totalLines } = readHeadTail(stats.size > 200 * 1024 ? filePath : filePath, stats, 50, 50);
 
   let firstPrompt = '';
   let lastPrompt = '';
@@ -145,7 +186,7 @@ function parseSessionFile(filePath, sessionId, activeIds) {
     lastResponse: lastResponse.substring(0, 300) || '',
     userTurns,
     assistantTurns,
-    totalLines: lines.length,
+    totalLines,
     fileSize: stats.size,
     startTime: firstTimestamp,
     lastModified: lastTimestamp || stats.mtimeMs,
@@ -153,6 +194,9 @@ function parseSessionFile(filePath, sessionId, activeIds) {
     isActive: activeIds.has(sessionId),
   };
 }
+
+// Cache parsed sessions by file path + mtime
+const _cache = new Map();
 
 /**
  * Get all sessions for the current workspace project.
@@ -170,12 +214,19 @@ function getAllSessions() {
     const sessions = [];
     for (const f of jsonlFiles) {
       const sessionId = f.slice(0, -6);
+      const filePath = path.join(project.dir, f);
       try {
-        const info = parseSessionFile(
-          path.join(project.dir, f),
-          sessionId,
-          activeIds,
-        );
+        const stats = fs.statSync(filePath);
+        const cacheKey = filePath;
+        const cached = _cache.get(cacheKey);
+        if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+          // Update active status (changes without file modification)
+          cached.data.isActive = activeIds.has(sessionId);
+          sessions.push(cached.data);
+          continue;
+        }
+        const info = parseSessionFile(filePath, sessionId, activeIds);
+        _cache.set(cacheKey, { mtimeMs: stats.mtimeMs, size: stats.size, data: info });
         sessions.push(info);
       } catch {
         // Skip unreadable files
